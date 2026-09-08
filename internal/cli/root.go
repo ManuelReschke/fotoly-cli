@@ -62,6 +62,7 @@ func (a *App) buildRoot() *cobra.Command {
 	cmd.AddCommand(a.versionCommand())
 	cmd.AddCommand(a.setupCommand())
 	cmd.AddCommand(a.whoamiCommand())
+	cmd.AddCommand(a.uploadCommand())
 	cmd.AddCommand(a.imagesCommand())
 	cmd.AddCommand(a.albumsCommand())
 	return cmd

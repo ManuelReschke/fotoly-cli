@@ -1,7 +1,6 @@
 package cli
 
 import (
-	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -12,6 +11,7 @@ import (
 	"github.com/ManuelReschke/fotoly-cli/internal/brand"
 	"github.com/ManuelReschke/fotoly-cli/internal/client"
 	"github.com/ManuelReschke/fotoly-cli/internal/config"
+	"github.com/atotto/clipboard"
 	"github.com/spf13/cobra"
 	"golang.org/x/term"
 )
@@ -51,11 +51,9 @@ func New(b brand.Brand) *App {
 		IsTTY: func() bool {
 			return term.IsTerminal(int(os.Stderr.Fd()))
 		},
-		Prompter: HuhPrompter{},
-		Clipboard: func(string) error {
-			return errors.New("clipboard unavailable")
-		},
-		Sleep: time.Sleep,
+		Prompter:  HuhPrompter{},
+		Clipboard: writeClipboard,
+		Sleep:     time.Sleep,
 	}
 }
 
@@ -106,4 +104,13 @@ func (a *App) requireClient(cmd *cobra.Command) (*client.Client, config.Values, 
 	}
 	c := client.New(vals.BaseURL, vals.APIKey, a.Brand.UserAgentString(a.Version), a.HTTPClient)
 	return c, vals, nil
+}
+
+func writeClipboard(s string) (err error) {
+	defer func() {
+		if rec := recover(); rec != nil {
+			err = fmt.Errorf("clipboard: %v", rec)
+		}
+	}()
+	return clipboard.WriteAll(s)
 }
