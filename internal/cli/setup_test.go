@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -130,6 +131,29 @@ func TestSetupReset(t *testing.T) {
 	dir := testConfigDir(t, a)
 	path := config.FilePath(brand.Fotoly, dir)
 	if err := config.Save(path, config.File{BaseURL: brand.Fotoly.DefaultURL, APIKey: "pxl_old"}); err != nil {
+		t.Fatal(err)
+	}
+	a.Root().SetArgs([]string{"setup", "--reset"})
+	code := Run(a)
+	if code != 0 {
+		t.Fatalf("code=%d stderr=%s", code, stderr.String())
+	}
+	if !strings.Contains(stdout.String(), "Config removed.") {
+		t.Fatalf("stdout=%q", stdout.String())
+	}
+	if _, err := os.Stat(path); !os.IsNotExist(err) {
+		t.Fatalf("file still exists: %v", err)
+	}
+}
+
+func TestSetupResetInvalidTOML(t *testing.T) {
+	a, stdout, stderr := newTestApp(t, brand.Fotoly)
+	dir := testConfigDir(t, a)
+	path := config.FilePath(brand.Fotoly, dir)
+	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(path, []byte("this is not toml {{{"), 0o600); err != nil {
 		t.Fatal(err)
 	}
 	a.Root().SetArgs([]string{"setup", "--reset"})

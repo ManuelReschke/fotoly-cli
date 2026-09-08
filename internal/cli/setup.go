@@ -25,6 +25,19 @@ func (a *App) setupRun(cmd *cobra.Command, _ []string) error {
 	if err != nil {
 		return err
 	}
+
+	reset, err := cmd.Flags().GetBool("reset")
+	if err != nil {
+		return err
+	}
+	if reset {
+		if err := config.Reset(a.configPath(dir)); err != nil {
+			return err
+		}
+		fmt.Fprintln(a.Stdout, "Config removed.")
+		return nil
+	}
+
 	vals, err := config.Load(a.Brand, config.Source{
 		UserConfigDir: dir,
 		LookupEnv:     a.LookupEnv,
@@ -33,18 +46,6 @@ func (a *App) setupRun(cmd *cobra.Command, _ []string) error {
 	})
 	if err != nil {
 		return err
-	}
-
-	reset, err := cmd.Flags().GetBool("reset")
-	if err != nil {
-		return err
-	}
-	if reset {
-		if err := config.Reset(vals.Path); err != nil {
-			return err
-		}
-		fmt.Fprintln(a.Stdout, "Config removed.")
-		return nil
 	}
 
 	key := strings.TrimSpace(a.flagAPIKey)
@@ -84,4 +85,15 @@ func (a *App) setupRun(cmd *cobra.Command, _ []string) error {
 	}
 	fmt.Fprintf(a.Stdout, "Logged in as %s (%s) on %s\n", acc.Username, acc.Plan, base)
 	return nil
+}
+
+func (a *App) configPath(userConfigDir string) string {
+	path := strings.TrimSpace(a.flagConfig)
+	if path == "" && a.LookupEnv != nil {
+		path = strings.TrimSpace(a.LookupEnv(a.Brand.EnvPrefix + "_CONFIG"))
+	}
+	if path == "" {
+		path = config.FilePath(a.Brand, userConfigDir)
+	}
+	return path
 }
