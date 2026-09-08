@@ -13,3 +13,15 @@ func TestEnabled(t *testing.T) {
 		t.Fatal("non-TTY disables")
 	}
 }
+
+func TestBytes(t *testing.T) {
+	if got := Bytes(100); got != "100 B" {
+		t.Fatalf("got %q", got)
+	}
+	if got := Bytes(1024); got != "1.0 KB" {
+		t.Fatalf("got %q", got)
+	}
+	if got := Bytes(1572864); got != "1.5 MB" {
+		t.Fatalf("got %q", got)
+	}
+}

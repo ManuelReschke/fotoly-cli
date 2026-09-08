@@ -29,6 +29,12 @@ func (HuhPrompter) PromptSetup(br brand.Brand, defaultURL string) (string, strin
 	return strings.TrimSpace(key), strings.TrimSpace(base), nil
 }
 
-func (HuhPrompter) ConfirmDelete(int) (bool, error) {
-	return false, fmt.Errorf("not implemented")
+func (HuhPrompter) ConfirmDelete(n int) (bool, error) {
+	ok := false
+	title := fmt.Sprintf("Delete %d image(s)?", n)
+	form := huh.NewForm(huh.NewGroup(huh.NewConfirm().Title(title).Affirmative("Yes").Negative("No").Value(&ok)))
+	if err := form.Run(); err != nil {
+		return false, err
+	}
+	return ok, nil
 }
