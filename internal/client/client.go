@@ -1,8 +1,11 @@
 package client
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
+	"io"
+	"mime/multipart"
 	"net/http"
 	"net/url"
 	"strconv"
@@ -100,15 +103,102 @@ func (c *Client) DeleteImage(ctx context.Context, uuid string) (*ImageDeletionAc
 	return &acc, nil
 }
 
+func (c *Client) CreateUploadSession(ctx context.Context, req UploadSessionRequest) (*UploadSessionResponse, error) {
+	var sess UploadSessionResponse
+	if err := c.doJSONBody(ctx, http.MethodPost, "/upload/sessions", req, &sess); err != nil {
+		return nil, err
+	}
+	return &sess, nil
+}
+
+func (c *Client) UploadFile(ctx context.Context, uploadURL, token, filename string, r io.Reader, size int64, progress func(sent, total int64)) (*StorageUploadResponse, error) {
+	var body bytes.Buffer
+	mw := multipart.NewWriter(&body)
+	fw, err := mw.CreateFormFile("file", filename)
+	if err != nil {
+		return nil, err
+	}
+	src := io.Reader(r)
+	if progress != nil {
+		src = io.TeeReader(r, &progressWriter{total: size, fn: progress})
+	}
+	if _, err := io.Copy(fw, src); err != nil {
+		return nil, err
+	}
+	if err := mw.Close(); err != nil {
+		return nil, err
+	}
+
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, uploadURL, &body)
+	if err != nil {
+		return nil, err
+	}
+	req.Header.Set("Authorization", "Bearer "+token)
+	req.Header.Set("Content-Type", mw.FormDataContentType())
+	req.Header.Set("Accept", "application/json")
+	req.Header.Set("User-Agent", c.UserAgent)
+
+	transport := c.HTTP.Transport
+	if transport == nil {
+		transport = http.DefaultTransport
+	}
+	httpClient := &http.Client{
+		Timeout:   10 * time.Minute,
+		Transport: transport,
+	}
+
+	resp, err := httpClient.Do(req)
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		return nil, decodeAPIError(resp)
+	}
+	var out StorageUploadResponse
+	if err := json.NewDecoder(resp.Body).Decode(&out); err != nil {
+		return nil, err
+	}
+	return &out, nil
+}
+
+type progressWriter struct {
+	sent, total int64
+	fn          func(sent, total int64)
+}
+
+func (w *progressWriter) Write(p []byte) (int, error) {
+	n := len(p)
+	w.sent += int64(n)
+	w.fn(w.sent, w.total)
+	return n, nil
+}
+
 func (c *Client) doJSON(ctx context.Context, method, path string, dest any) error {
+	return c.doJSONBody(ctx, method, path, nil, dest)
+}
+
+func (c *Client) doJSONBody(ctx context.Context, method, path string, body, dest any) error {
 	u := strings.TrimRight(c.BaseURL, "/") + "/api/v1" + path
-	req, err := http.NewRequestWithContext(ctx, method, u, nil)
+	var rdr io.Reader
+	if body != nil {
+		b, err := json.Marshal(body)
+		if err != nil {
+			return err
+		}
+		rdr = bytes.NewReader(b)
+	}
+	req, err := http.NewRequestWithContext(ctx, method, u, rdr)
 	if err != nil {
 		return err
 	}
 	req.Header.Set("Accept", "application/json")
 	req.Header.Set("X-API-Key", c.APIKey)
 	req.Header.Set("User-Agent", c.UserAgent)
+	if body != nil {
+		req.Header.Set("Content-Type", "application/json")
+	}
 
 	resp, err := c.HTTP.Do(req)
 	if err != nil {
@@ -117,16 +207,20 @@ func (c *Client) doJSON(ctx context.Context, method, path string, dest any) erro
 	defer resp.Body.Close()
 
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		var body struct {
-			Error   string `json:"error"`
-			Message string `json:"message"`
-		}
-		_ = json.NewDecoder(resp.Body).Decode(&body)
-		return &APIError{
-			Status:  resp.StatusCode,
-			Code:    body.Error,
-			Message: body.Message,
-		}
+		return decodeAPIError(resp)
 	}
 	return json.NewDecoder(resp.Body).Decode(dest)
+}
+
+func decodeAPIError(resp *http.Response) error {
+	var body struct {
+		Error   string `json:"error"`
+		Message string `json:"message"`
+	}
+	_ = json.NewDecoder(resp.Body).Decode(&body)
+	return &APIError{
+		Status:  resp.StatusCode,
+		Code:    body.Error,
+		Message: body.Message,
+	}
 }

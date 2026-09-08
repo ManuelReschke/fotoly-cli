@@ -1,6 +1,7 @@
 package client
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"io"
@@ -212,6 +213,146 @@ func TestGetImageNotFound(t *testing.T) {
 	_, err := c.GetImage(context.Background(), "missing")
 	apiErr, ok := err.(*APIError)
 	if !ok || apiErr.Status != 404 {
+		t.Fatalf("err=%v", err)
+	}
+}
+
+func TestCreateUploadSession(t *testing.T) {
+	albumID := int64(42)
+	nsfw := true
+	var gotKey, gotMethod, gotPath string
+	var gotBody UploadSessionRequest
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gotKey = r.Header.Get("X-API-Key")
+		gotMethod = r.Method
+		gotPath = r.URL.Path
+		if r.Header.Get("Authorization") != "" {
+			t.Errorf("session must not send Authorization, got %q", r.Header.Get("Authorization"))
+		}
+		if err := json.NewDecoder(r.Body).Decode(&gotBody); err != nil {
+			t.Errorf("decode body: %v", err)
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"upload_url": "https://example.com/api/v1/upload",
+			"token":      "sess_token",
+			"pool_id":    7,
+			"expires_at": 9999999999,
+			"max_bytes":  10_000_000,
+			"album_id":   42,
+		})
+	}))
+	defer srv.Close()
+
+	c := New(srv.URL, "pxl_test", "fotoly-cli/dev", srv.Client())
+	sess, err := c.CreateUploadSession(context.Background(), UploadSessionRequest{
+		FileSize: 1837421,
+		AlbumID:  &albumID,
+		IsNSFW:   &nsfw,
+		Processing: &struct {
+			Profile string `json:"profile"`
+		}{Profile: "original_only"},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if gotMethod != http.MethodPost || gotPath != "/api/v1/upload/sessions" {
+		t.Fatalf("method=%s path=%s", gotMethod, gotPath)
+	}
+	if gotKey != "pxl_test" {
+		t.Fatalf("key=%q", gotKey)
+	}
+	if gotBody.FileSize != 1837421 || gotBody.AlbumID == nil || *gotBody.AlbumID != 42 || gotBody.IsNSFW == nil || !*gotBody.IsNSFW {
+		t.Fatalf("body=%+v", gotBody)
+	}
+	if gotBody.Processing == nil || gotBody.Processing.Profile != "original_only" {
+		t.Fatalf("processing=%+v", gotBody.Processing)
+	}
+	if sess.UploadURL != "https://example.com/api/v1/upload" || sess.Token != "sess_token" || sess.PoolID != 7 || sess.ExpiresAt != 9999999999 || sess.MaxBytes != 10_000_000 {
+		t.Fatalf("sess=%+v", sess)
+	}
+	if sess.AlbumID == nil || *sess.AlbumID != 42 {
+		t.Fatalf("album_id=%v", sess.AlbumID)
+	}
+}
+
+func TestUploadFileUsesBearerNotAPIKey(t *testing.T) {
+	var gotAuth, gotAPIKey, gotMethod string
+	var gotFile []byte
+	var formFileName string
+	uploadSrv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gotAuth = r.Header.Get("Authorization")
+		gotAPIKey = r.Header.Get("X-API-Key")
+		gotMethod = r.Method
+		file, hdr, err := r.FormFile("file")
+		if err != nil {
+			t.Errorf("form file: %v", err)
+			w.WriteHeader(http.StatusBadRequest)
+			return
+		}
+		defer file.Close()
+		formFileName = hdr.Filename
+		gotFile, _ = io.ReadAll(file)
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"image_uuid": "img-uuid",
+			"view_url":   "/i/abc",
+			"duplicate":  false,
+		})
+	}))
+	defer uploadSrv.Close()
+
+	apiSrv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		t.Errorf("upload must not hit API origin, path=%s", r.URL.Path)
+	}))
+	defer apiSrv.Close()
+
+	c := New(apiSrv.URL, "pxl_test", "fotoly-cli/dev", uploadSrv.Client())
+	payload := []byte("hello-image")
+	var lastSent int64
+	resp, err := c.UploadFile(context.Background(), uploadSrv.URL, "sess_token", "cat.jpg", bytes.NewReader(payload), int64(len(payload)), func(sent, total int64) {
+		lastSent = sent
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if gotMethod != http.MethodPost {
+		t.Fatalf("method=%s", gotMethod)
+	}
+	if gotAuth != "Bearer sess_token" {
+		t.Fatalf("auth=%q", gotAuth)
+	}
+	if gotAPIKey != "" {
+		t.Fatalf("X-API-Key should be empty, got %q", gotAPIKey)
+	}
+	if formFileName != "cat.jpg" || string(gotFile) != string(payload) {
+		t.Fatalf("filename=%q file=%q", formFileName, gotFile)
+	}
+	if lastSent <= 0 {
+		t.Fatalf("progress sent=%d", lastSent)
+	}
+	if resp.ImageUUID == nil || *resp.ImageUUID != "img-uuid" {
+		t.Fatalf("resp=%+v", resp)
+	}
+	if resp.ViewURL == nil || *resp.ViewURL != "/i/abc" {
+		t.Fatalf("resp=%+v", resp)
+	}
+	if resp.Duplicate == nil || *resp.Duplicate {
+		t.Fatalf("resp=%+v", resp)
+	}
+}
+
+func TestCreateUploadSessionTooLarge(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusRequestEntityTooLarge)
+		_, _ = io.WriteString(w, `{"error":"quota_exceeded","message":"storage quota exceeded"}`)
+	}))
+	defer srv.Close()
+
+	c := New(srv.URL, "pxl_test", "fotoly-cli/dev", srv.Client())
+	_, err := c.CreateUploadSession(context.Background(), UploadSessionRequest{FileSize: 1 << 40})
+	apiErr, ok := err.(*APIError)
+	if !ok || apiErr.Status != 413 {
 		t.Fatalf("err=%v", err)
 	}
 }

@@ -110,3 +110,28 @@ type AlbumSummary struct {
 	CreatedAt   string `json:"created_at"`
 	UpdatedAt   string `json:"updated_at"`
 }
+
+type UploadSessionRequest struct {
+	FileSize   int64  `json:"file_size"`
+	AlbumID    *int64 `json:"album_id,omitempty"`
+	IsNSFW     *bool  `json:"is_nsfw,omitempty"`
+	Processing *struct {
+		Profile string `json:"profile"`
+	} `json:"processing,omitempty"`
+}
+
+type UploadSessionResponse struct {
+	UploadURL string `json:"upload_url"`
+	Token     string `json:"token"`
+	PoolID    int64  `json:"pool_id"`
+	ExpiresAt int64  `json:"expires_at"`
+	MaxBytes  int64  `json:"max_bytes"`
+	AlbumID   *int64 `json:"album_id,omitempty"`
+}
+
+type StorageUploadResponse struct {
+	ImageUUID *string `json:"image_uuid"`
+	ViewURL   *string `json:"view_url"`
+	URL       *string `json:"url"`
+	Duplicate *bool   `json:"duplicate"`
+}
