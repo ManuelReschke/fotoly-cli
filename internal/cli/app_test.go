@@ -12,15 +12,17 @@ import (
 func newTestApp(t *testing.T, br brand.Brand) (*App, *bytes.Buffer, *bytes.Buffer) {
 	t.Helper()
 	stdout, stderr := &bytes.Buffer{}, &bytes.Buffer{}
+	dir := t.TempDir()
 	a := New(br)
 	a.Version = "1.2.3"
 	a.Commit = "abc"
 	a.Stdout = stdout
 	a.Stderr = stderr
-	a.UserConfigDir = func() (string, error) { return t.TempDir(), nil }
+	a.UserConfigDir = func() (string, error) { return dir, nil }
 	a.LookupEnv = func(string) string { return "" }
 	a.IsTTY = func() bool { return false }
 	a.Sleep = func(time.Duration) {}
+	a.Prompter = stubPrompter{}
 	return a, stdout, stderr
 }
 

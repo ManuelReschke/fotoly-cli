@@ -60,6 +60,7 @@ func (a *App) buildRoot() *cobra.Command {
 	cmd.PersistentFlags().String("config", "", "config file path")
 	cmd.PersistentFlags().String("api-key", "", "API key (overrides config)")
 	cmd.AddCommand(a.versionCommand())
+	cmd.AddCommand(a.setupCommand())
 	return cmd
 }
 

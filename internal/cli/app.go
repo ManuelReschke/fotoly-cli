@@ -22,6 +22,7 @@ type App struct {
 	UserConfigDir func() (string, error)
 	HTTPClient    *http.Client
 	IsTTY         func() bool
+	Prompter      Prompter
 	Clipboard     func(string) error
 	Sleep         func(time.Duration)
 
@@ -46,6 +47,7 @@ func New(b brand.Brand) *App {
 		IsTTY: func() bool {
 			return term.IsTerminal(int(os.Stderr.Fd()))
 		},
+		Prompter: HuhPrompter{},
 		Clipboard: func(string) error {
 			return errors.New("clipboard unavailable")
 		},
