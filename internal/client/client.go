@@ -112,25 +112,31 @@ func (c *Client) CreateUploadSession(ctx context.Context, req UploadSessionReque
 }
 
 func (c *Client) UploadFile(ctx context.Context, uploadURL, token, filename string, r io.Reader, size int64, progress func(sent, total int64)) (*StorageUploadResponse, error) {
-	var body bytes.Buffer
-	mw := multipart.NewWriter(&body)
-	fw, err := mw.CreateFormFile("file", filename)
-	if err != nil {
-		return nil, err
-	}
-	src := io.Reader(r)
-	if progress != nil {
-		src = io.TeeReader(r, &progressWriter{total: size, fn: progress})
-	}
-	if _, err := io.Copy(fw, src); err != nil {
-		return nil, err
-	}
-	if err := mw.Close(); err != nil {
-		return nil, err
-	}
+	pr, pw := io.Pipe()
+	mw := multipart.NewWriter(pw)
+	go func() {
+		var err error
+		defer func() {
+			if closeErr := mw.Close(); err == nil {
+				err = closeErr
+			}
+			_ = pw.CloseWithError(err)
+		}()
+		fw, ferr := mw.CreateFormFile("file", filename)
+		if ferr != nil {
+			err = ferr
+			return
+		}
+		src := io.Reader(r)
+		if progress != nil {
+			src = io.TeeReader(r, &progressWriter{total: size, fn: progress})
+		}
+		_, err = io.Copy(fw, src)
+	}()
 
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, uploadURL, &body)
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, uploadURL, pr)
 	if err != nil {
+		_ = pr.Close()
 		return nil, err
 	}
 	req.Header.Set("Authorization", "Bearer "+token)
@@ -149,6 +155,7 @@ func (c *Client) UploadFile(ctx context.Context, uploadURL, token, filename stri
 
 	resp, err := httpClient.Do(req)
 	if err != nil {
+		_ = pr.Close()
 		return nil, err
 	}
 	defer resp.Body.Close()
