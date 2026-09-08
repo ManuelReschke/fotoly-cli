@@ -103,6 +103,9 @@ func (a *App) requireClient(cmd *cobra.Command) (*client.Client, config.Values, 
 		return nil, config.Values{}, fmt.Errorf("No API key. Run '%s setup'.", a.Brand.Binary)
 	}
 	c := client.New(vals.BaseURL, vals.APIKey, a.Brand.UserAgentString(a.Version), a.HTTPClient)
+	if a.Sleep != nil {
+		c.Sleep = a.Sleep
+	}
 	return c, vals, nil
 }
 

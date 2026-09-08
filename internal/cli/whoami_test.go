@@ -103,6 +103,35 @@ func TestWhoamiAliasMe(t *testing.T) {
 	}
 }
 
+func TestWhoamiJSONUnauthorized(t *testing.T) {
+	a, stdout, stderr := newTestApp(t, brand.Fotoly)
+	srv := profileServer(t, http.StatusUnauthorized, "", "")
+	attachServer(a, srv)
+	dir := testConfigDir(t, a)
+	if err := config.Save(config.FilePath(brand.Fotoly, dir), config.File{BaseURL: srv.URL, APIKey: "pxl_bad"}); err != nil {
+		t.Fatal(err)
+	}
+	a.Root().SetArgs([]string{"whoami", "--json"})
+	code := Run(a)
+	if code != 1 {
+		t.Fatalf("code=%d stderr=%s", code, stderr.String())
+	}
+	if stdout.Len() != 0 {
+		t.Fatalf("stdout=%q", stdout.String())
+	}
+	var payload map[string]any
+	if err := json.Unmarshal(stderr.Bytes(), &payload); err != nil {
+		t.Fatalf("stderr not JSON: %v %q", err, stderr.String())
+	}
+	msg, _ := payload["message"].(string)
+	if !strings.Contains(msg, "Invalid API key") {
+		t.Fatalf("stderr=%q", stderr.String())
+	}
+	if _, ok := payload["error"]; !ok {
+		t.Fatalf("missing error field: %q", stderr.String())
+	}
+}
+
 func TestWhoamiUnauthorized(t *testing.T) {
 	a, _, stderr := newTestApp(t, brand.Fotoly)
 	srv := profileServer(t, http.StatusUnauthorized, "", "")

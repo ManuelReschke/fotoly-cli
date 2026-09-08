@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"io"
 	"mime/multipart"
 	"net/http"
@@ -18,6 +19,7 @@ type Client struct {
 	APIKey    string
 	UserAgent string
 	HTTP      *http.Client
+	Sleep     func(time.Duration)
 }
 
 func New(baseURL, apiKey, userAgent string, httpClient *http.Client) *Client {
@@ -29,6 +31,7 @@ func New(baseURL, apiKey, userAgent string, httpClient *http.Client) *Client {
 		APIKey:    apiKey,
 		UserAgent: userAgent,
 		HTTP:      httpClient,
+		Sleep:     time.Sleep,
 	}
 }
 
@@ -188,35 +191,98 @@ func (c *Client) doJSON(ctx context.Context, method, path string, dest any) erro
 
 func (c *Client) doJSONBody(ctx context.Context, method, path string, body, dest any) error {
 	u := strings.TrimRight(c.BaseURL, "/") + "/api/v1" + path
-	var rdr io.Reader
+	var payload []byte
 	if body != nil {
 		b, err := json.Marshal(body)
 		if err != nil {
 			return err
 		}
-		rdr = bytes.NewReader(b)
-	}
-	req, err := http.NewRequestWithContext(ctx, method, u, rdr)
-	if err != nil {
-		return err
-	}
-	req.Header.Set("Accept", "application/json")
-	req.Header.Set("X-API-Key", c.APIKey)
-	req.Header.Set("User-Agent", c.UserAgent)
-	if body != nil {
-		req.Header.Set("Content-Type", "application/json")
+		payload = b
 	}
 
-	resp, err := c.HTTP.Do(req)
-	if err != nil {
-		return err
-	}
-	defer resp.Body.Close()
+	var delay time.Duration
+	for attempt := 0; attempt < 2; attempt++ {
+		if attempt > 0 && delay > 0 {
+			c.sleep(delay)
+		}
+		var rdr io.Reader
+		if payload != nil {
+			rdr = bytes.NewReader(payload)
+		}
+		req, err := http.NewRequestWithContext(ctx, method, u, rdr)
+		if err != nil {
+			return err
+		}
+		req.Header.Set("Accept", "application/json")
+		req.Header.Set("X-API-Key", c.APIKey)
+		req.Header.Set("User-Agent", c.UserAgent)
+		if body != nil {
+			req.Header.Set("Content-Type", "application/json")
+		}
 
-	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		resp, err := c.HTTP.Do(req)
+		if err != nil {
+			if attempt == 0 && ctx.Err() == nil {
+				delay = 0
+				continue
+			}
+			return err
+		}
+
+		if resp.StatusCode >= 200 && resp.StatusCode < 300 {
+			defer resp.Body.Close()
+			return json.NewDecoder(resp.Body).Decode(dest)
+		}
+
+		if attempt == 0 && resp.StatusCode == http.StatusTooManyRequests {
+			delay = retryAfterDelay(resp.Header.Get("Retry-After"))
+			_, _ = io.Copy(io.Discard, resp.Body)
+			_ = resp.Body.Close()
+			continue
+		}
+		if attempt == 0 && resp.StatusCode >= 500 {
+			delay = 0
+			_, _ = io.Copy(io.Discard, resp.Body)
+			_ = resp.Body.Close()
+			continue
+		}
+
+		defer resp.Body.Close()
 		return decodeAPIError(resp)
 	}
-	return json.NewDecoder(resp.Body).Decode(dest)
+	return errors.New("retry exhausted")
+}
+
+func (c *Client) sleep(d time.Duration) {
+	if d <= 0 {
+		return
+	}
+	fn := c.Sleep
+	if fn == nil {
+		fn = time.Sleep
+	}
+	fn(d)
+}
+
+func retryAfterDelay(h string) time.Duration {
+	h = strings.TrimSpace(h)
+	if h == "" {
+		return 2 * time.Second
+	}
+	if secs, err := strconv.Atoi(h); err == nil {
+		if secs < 0 {
+			return 0
+		}
+		return time.Duration(secs) * time.Second
+	}
+	if t, err := http.ParseTime(h); err == nil {
+		d := time.Until(t)
+		if d < 0 {
+			return 0
+		}
+		return d
+	}
+	return 2 * time.Second
 }
 
 func decodeAPIError(resp *http.Response) error {

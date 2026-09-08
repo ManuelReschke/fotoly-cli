@@ -1,11 +1,14 @@
 package cli
 
 import (
+	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"strings"
 
 	"github.com/ManuelReschke/fotoly-cli/internal/brand"
+	"github.com/ManuelReschke/fotoly-cli/internal/client"
 	"github.com/spf13/cobra"
 )
 
@@ -21,13 +24,37 @@ func Run(a *App) int {
 	cmd.SetErr(a.Stderr)
 	cmd.SilenceErrors = true
 	if err := cmd.Execute(); err != nil {
-		fmt.Fprintln(a.Stderr, err.Error())
 		if isUsageErr(err) {
+			fmt.Fprintln(a.Stderr, err.Error())
 			return 2
 		}
+		writeCommandError(a.Stderr, err, a.flagJSON)
 		return 1
 	}
 	return 0
+}
+
+func writeCommandError(w io.Writer, err error, asJSON bool) {
+	if !asJSON {
+		fmt.Fprintln(w, err.Error())
+		return
+	}
+	payload := struct {
+		Error   string `json:"error"`
+		Message string `json:"message"`
+	}{
+		Error:   "error",
+		Message: err.Error(),
+	}
+	var apiErr *client.APIError
+	if errors.As(err, &apiErr) {
+		if apiErr.Code != "" {
+			payload.Error = apiErr.Code
+		} else {
+			payload.Error = fmt.Sprintf("http %d", apiErr.Status)
+		}
+	}
+	_ = json.NewEncoder(w).Encode(payload)
 }
 
 func isUsageErr(err error) bool {

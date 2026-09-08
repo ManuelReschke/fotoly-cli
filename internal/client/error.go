@@ -1,6 +1,9 @@
 package client
 
-import "errors"
+import (
+	"errors"
+	"fmt"
+)
 
 type APIError struct {
 	Status  int
@@ -9,10 +12,16 @@ type APIError struct {
 }
 
 func (e *APIError) Error() string {
+	if e == nil {
+		return "http 0"
+	}
 	if e.Message != "" {
 		return e.Message
 	}
-	return e.Code
+	if e.Code != "" {
+		return e.Code
+	}
+	return fmt.Sprintf("http %d", e.Status)
 }
 
 func IsUnauthorized(err error) bool {

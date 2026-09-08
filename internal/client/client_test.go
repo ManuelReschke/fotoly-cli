@@ -4,12 +4,14 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"io"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
 	"strings"
 	"testing"
+	"time"
 )
 
 func TestGetProfileSuccessSendsAPIKey(t *testing.T) {
@@ -39,6 +41,9 @@ func TestGetProfileSuccessSendsAPIKey(t *testing.T) {
 	}
 	if acc.Username != "pixelpete" || acc.Plan != "premium" {
 		t.Fatalf("account=%+v", acc)
+	}
+	if acc.Limits.StorageQuotaBytes == nil || *acc.Limits.StorageQuotaBytes != 200 {
+		t.Fatalf("quota=%v", acc.Limits.StorageQuotaBytes)
 	}
 	if gotKey != "pxl_test" || !strings.Contains(gotUA, "fotoly-cli") || gotPath != "/api/v1/user/profile" {
 		t.Fatalf("key=%q ua=%q path=%q", gotKey, gotUA, gotPath)
@@ -143,7 +148,7 @@ func TestGetImage(t *testing.T) {
 		gotPath = r.URL.Path
 		gotMethod = r.Method
 		w.Header().Set("Content-Type", "application/json")
-		_, _ = io.WriteString(w, `{"image_uuid":"u","view_url":"/i/s","url":"https://cdn.example/orig.jpg","is_nsfw":false}`)
+		_, _ = io.WriteString(w, `{"image_uuid":"u","view_url":"/i/s","url":"https://cdn.example/orig.jpg","is_nsfw":false,"available_variants":["original","webp"],"variants":{"original":{"original":{"url":"https://cdn.example/orig.jpg"}},"webp":{"medium":{"url":"https://cdn.example/m.webp"}}},"processing":{"profile":"default","keep_original":true}}`)
 	}))
 	defer srv.Close()
 	c := New(srv.URL, "pxl_test", "fotoly-cli/dev", srv.Client())
@@ -156,6 +161,15 @@ func TestGetImage(t *testing.T) {
 	}
 	if img.ImageUUID != "u" || img.ViewURL != "/i/s" || img.URL != "https://cdn.example/orig.jpg" {
 		t.Fatalf("img=%+v", img)
+	}
+	if img.Variants == nil || img.Variants.Original == nil || img.Variants.Original.Original == nil || img.Variants.Original.Original.URL != "https://cdn.example/orig.jpg" {
+		t.Fatalf("variants=%+v", img.Variants)
+	}
+	if img.Variants.WebP == nil || img.Variants.WebP.Medium == nil || img.Variants.WebP.Medium.URL != "https://cdn.example/m.webp" {
+		t.Fatalf("webp=%+v", img.Variants)
+	}
+	if img.Processing == nil || img.Processing.Profile != "default" || !img.Processing.KeepOriginal {
+		t.Fatalf("processing=%+v", img.Processing)
 	}
 }
 
@@ -355,4 +369,151 @@ func TestCreateUploadSessionTooLarge(t *testing.T) {
 	if !ok || apiErr.Status != 413 {
 		t.Fatalf("err=%v", err)
 	}
+}
+
+func TestGetProfileNullStorageQuota(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = io.WriteString(w, `{"id":1,"username":"pixelpete","email":"pete@example.com","status":"active","plan":"free","created_at":"2026-01-01T00:00:00Z","stats":{"images":{"count":0,"storage_used_bytes":0},"albums":{"count":0}},"limits":{"max_upload_bytes":50,"storage_quota_bytes":null,"can_multi_upload":true,"image_upload_enabled":true,"direct_upload_enabled":true,"allowed_thumbnail_formats":["original"]},"preferences":{"upload_nsfw_by_default":false,"thumbnail_original":true,"thumbnail_webp":false,"thumbnail_avif":false}}`)
+	}))
+	defer srv.Close()
+
+	c := New(srv.URL, "pxl_test", "fotoly-cli/dev", srv.Client())
+	acc, err := c.GetProfile(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if acc.Limits.StorageQuotaBytes != nil {
+		t.Fatalf("quota=%v", *acc.Limits.StorageQuotaBytes)
+	}
+	b, err := json.Marshal(acc.Limits)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Contains(b, []byte(`"storage_quota_bytes":null`)) {
+		t.Fatalf("json=%s", b)
+	}
+}
+
+func TestGetProfileRetries503ThenOK(t *testing.T) {
+	var n int
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		n++
+		if n == 1 {
+			w.WriteHeader(http.StatusServiceUnavailable)
+			_, _ = io.WriteString(w, `{"error":"unavailable","message":"try later"}`)
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = io.WriteString(w, `{"username":"pixelpete","plan":"premium"}`)
+	}))
+	defer srv.Close()
+
+	c := New(srv.URL, "pxl_test", "fotoly-cli/dev", srv.Client())
+	c.Sleep = func(time.Duration) { t.Fatal("5xx retry must not sleep") }
+	acc, err := c.GetProfile(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if n != 2 {
+		t.Fatalf("requests=%d", n)
+	}
+	if acc.Username != "pixelpete" {
+		t.Fatalf("acc=%+v", acc)
+	}
+}
+
+func TestGetProfileTwo503Fails(t *testing.T) {
+	var n int
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		n++
+		w.WriteHeader(http.StatusServiceUnavailable)
+		_, _ = io.WriteString(w, `{"error":"unavailable","message":"down"}`)
+	}))
+	defer srv.Close()
+
+	c := New(srv.URL, "pxl_test", "fotoly-cli/dev", srv.Client())
+	c.Sleep = func(time.Duration) {}
+	_, err := c.GetProfile(context.Background())
+	apiErr, ok := err.(*APIError)
+	if !ok || apiErr.Status != 503 || apiErr.Error() != "down" {
+		t.Fatalf("err=%v", err)
+	}
+	if n != 2 {
+		t.Fatalf("requests=%d", n)
+	}
+}
+
+func TestGetProfileRetries429RetryAfter(t *testing.T) {
+	var n int
+	var slept time.Duration
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		n++
+		if n == 1 {
+			w.Header().Set("Retry-After", "7")
+			w.WriteHeader(http.StatusTooManyRequests)
+			_, _ = io.WriteString(w, `{"error":"rate_limited","message":"slow down"}`)
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = io.WriteString(w, `{"username":"pixelpete"}`)
+	}))
+	defer srv.Close()
+
+	c := New(srv.URL, "pxl_test", "fotoly-cli/dev", srv.Client())
+	c.Sleep = func(d time.Duration) { slept = d }
+	acc, err := c.GetProfile(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if n != 2 {
+		t.Fatalf("requests=%d", n)
+	}
+	if slept != 7*time.Second {
+		t.Fatalf("slept=%s", slept)
+	}
+	if acc.Username != "pixelpete" {
+		t.Fatalf("acc=%+v", acc)
+	}
+}
+
+func TestGetProfileRetriesNetworkOnce(t *testing.T) {
+	var n int
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		n++
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = io.WriteString(w, `{"username":"pixelpete"}`)
+	}))
+	defer srv.Close()
+
+	base := srv.Client()
+	var fails int
+	httpClient := &http.Client{
+		Timeout: 5 * time.Second,
+		Transport: roundTripperFunc(func(r *http.Request) (*http.Response, error) {
+			if fails == 0 {
+				fails++
+				return nil, errors.New("connection reset")
+			}
+			return base.Transport.RoundTrip(r)
+		}),
+	}
+	c := New(srv.URL, "pxl_test", "fotoly-cli/dev", httpClient)
+	c.Sleep = func(time.Duration) {}
+	acc, err := c.GetProfile(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if n != 1 || fails != 1 {
+		t.Fatalf("serverHits=%d transportFails=%d", n, fails)
+	}
+	if acc.Username != "pixelpete" {
+		t.Fatalf("acc=%+v", acc)
+	}
+}
+
+type roundTripperFunc func(*http.Request) (*http.Response, error)
+
+func (f roundTripperFunc) RoundTrip(r *http.Request) (*http.Response, error) {
+	return f(r)
 }

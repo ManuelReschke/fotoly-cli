@@ -79,6 +79,9 @@ func (a *App) runSetup(ctx context.Context, key, base string) error {
 	}
 
 	c := client.New(base, key, a.Brand.UserAgentString(a.Version), a.HTTPClient)
+	if a.Sleep != nil {
+		c.Sleep = a.Sleep
+	}
 	acc, err := c.GetProfile(ctx)
 	if err != nil {
 		if client.IsUnauthorized(err) {

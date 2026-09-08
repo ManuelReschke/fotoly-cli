@@ -48,7 +48,7 @@ func mediaServer(t *testing.T, deleted *deleteLog) *httptest.Server {
 	})
 	mux.HandleFunc("GET /api/v1/images/{uuid}", func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
-		_, _ = io.WriteString(w, `{"image_uuid":"u","view_url":"/i/s","url":"https://cdn.example/orig.jpg","is_nsfw":false}`)
+		_, _ = io.WriteString(w, `{"image_uuid":"u","view_url":"/i/s","url":"https://cdn.example/orig.jpg","is_nsfw":false,"available_variants":["original","webp"],"variants":{"original":{"original":{"url":"https://cdn.example/orig.jpg"}},"webp":{"medium":{"url":"https://cdn.example/m.webp"}}},"processing":{"profile":"default","keep_original":true}}`)
 	})
 	mux.HandleFunc("DELETE /api/v1/images/{uuid}", func(w http.ResponseWriter, r *http.Request) {
 		deleted.add(r.PathValue("uuid"))
@@ -126,6 +126,51 @@ func TestImagesGet(t *testing.T) {
 	want := srv.URL + "/i/s"
 	if !strings.Contains(stdout.String(), want) {
 		t.Fatalf("stdout=%q want share URL %q", stdout.String(), want)
+	}
+}
+
+func TestImagesGetJSONIncludesVariants(t *testing.T) {
+	a, stdout, stderr := newTestApp(t, brand.Fotoly)
+	srv := mediaServer(t, nil)
+	attachServer(a, srv)
+	saveTestAPIKey(t, a, srv.URL)
+
+	a.Root().SetArgs([]string{"images", "get", "u", "--json"})
+	code := Run(a)
+	if code != 0 {
+		t.Fatalf("code=%d stderr=%s", code, stderr.String())
+	}
+	var img map[string]any
+	if err := json.Unmarshal(stdout.Bytes(), &img); err != nil {
+		t.Fatalf("stdout not JSON: %v %q", err, stdout.String())
+	}
+	variants, ok := img["variants"].(map[string]any)
+	if !ok {
+		t.Fatalf("stdout=%q", stdout.String())
+	}
+	orig, _ := variants["original"].(map[string]any)
+	origSize, _ := orig["original"].(map[string]any)
+	if origSize["url"] != "https://cdn.example/orig.jpg" {
+		t.Fatalf("stdout=%q", stdout.String())
+	}
+	if _, ok := img["processing"].(map[string]any); !ok {
+		t.Fatalf("missing processing: %q", stdout.String())
+	}
+}
+
+func TestImagesLSUsageJSONStaysText(t *testing.T) {
+	a, _, stderr := newTestApp(t, brand.Fotoly)
+	a.Root().SetArgs([]string{"images", "ls", "--json", "--public", "--private"})
+	code := Run(a)
+	if code != 2 {
+		t.Fatalf("code=%d stderr=%s", code, stderr.String())
+	}
+	s := strings.TrimSpace(stderr.String())
+	if strings.HasPrefix(s, "{") {
+		t.Fatalf("usage error should stay text, stderr=%q", stderr.String())
+	}
+	if !strings.Contains(s, "--public and --private are mutually exclusive") {
+		t.Fatalf("stderr=%q", stderr.String())
 	}
 }
 

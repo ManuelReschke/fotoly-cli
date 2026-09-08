@@ -24,7 +24,7 @@ type UserAccountStats struct {
 
 type UserAccountLimits struct {
 	MaxUploadBytes          int64    `json:"max_upload_bytes"`
-	StorageQuotaBytes       int64    `json:"storage_quota_bytes"`
+	StorageQuotaBytes       *int64   `json:"storage_quota_bytes"`
 	CanMultiUpload          bool     `json:"can_multi_upload"`
 	ImageUploadEnabled      bool     `json:"image_upload_enabled"`
 	DirectUploadEnabled     bool     `json:"direct_upload_enabled"`
@@ -74,12 +74,46 @@ type ImageSummary struct {
 }
 
 type ImageResource struct {
-	ImageUUID         string   `json:"image_uuid"`
-	ViewURL           string   `json:"view_url,omitempty"`
-	IsNSFW            bool     `json:"is_nsfw"`
-	Tags              []string `json:"tags,omitempty"`
-	URL               string   `json:"url,omitempty"`
-	AvailableVariants []string `json:"available_variants,omitempty"`
+	ImageUUID         string           `json:"image_uuid"`
+	ViewURL           string           `json:"view_url,omitempty"`
+	IsNSFW            bool             `json:"is_nsfw"`
+	Tags              []string         `json:"tags,omitempty"`
+	URL               string           `json:"url,omitempty"`
+	AvailableVariants []string         `json:"available_variants,omitempty"`
+	Variants          *ImageVariants   `json:"variants,omitempty"`
+	Processing        *ImageProcessing `json:"processing,omitempty"`
+}
+
+type ImageVariants struct {
+	Original *FormatVariants `json:"original,omitempty"`
+	WebP     *FormatVariants `json:"webp,omitempty"`
+	AVIF     *FormatVariants `json:"avif,omitempty"`
+}
+
+type FormatVariants struct {
+	Original *VariantSize `json:"original,omitempty"`
+	Medium   *VariantSize `json:"medium,omitempty"`
+	Small    *VariantSize `json:"small,omitempty"`
+}
+
+type VariantSize struct {
+	URL      string `json:"url"`
+	Width    int    `json:"width,omitempty"`
+	Height   int    `json:"height,omitempty"`
+	Bytes    int64  `json:"bytes,omitempty"`
+	MimeType string `json:"mime_type,omitempty"`
+	Animated bool   `json:"animated,omitempty"`
+}
+
+type ImageProcessing struct {
+	Profile      string                 `json:"profile"`
+	KeepOriginal bool                   `json:"keep_original"`
+	Derivatives  []ProcessingDerivative `json:"derivatives,omitempty"`
+}
+
+type ProcessingDerivative struct {
+	Family string `json:"family"`
+	Size   string `json:"size"`
 }
 
 type ImageStatus struct {
