@@ -1,2 +1,144 @@
 # fotoly-cli
-The offical fotoly.eu &amp; pixelfox.cc CLI tool for managing and upload images over the cli
+
+Official command-line tools for [fotoly.eu](https://fotoly.eu) and [pixelfox.cc](https://pixelfox.cc). One Go module ships two binaries — `fotoly` and `pixelfox` — with separate configs, hosts, and environment prefixes.
+
+Use them to set up an API key, check your account, upload images, list or delete images, and list albums.
+
+## Install
+
+Requires Go 1.26+.
+
+```bash
+go install github.com/ManuelReschke/fotoly-cli/cmd/fotoly@latest
+go install github.com/ManuelReschke/fotoly-cli/cmd/pixelfox@latest
+```
+
+Or build from a clone:
+
+```bash
+make build   # produces ./bin/fotoly and ./bin/pixelfox
+```
+
+## API key
+
+Create a user API key in the website settings:
+
+- Fotoly: https://fotoly.eu/user/settings
+- PixelFox: https://pixelfox.cc/user/settings
+
+Keys usually start with `pxl_`.
+
+## First run
+
+On a TTY, a missing key starts the setup wizard (for example when you run `fotoly whoami`). You can also configure non-interactively:
+
+```bash
+fotoly setup --api-key pxl_…
+# or
+pixelfox setup --api-key pxl_…
+```
+
+Reset stored config for that brand only:
+
+```bash
+fotoly setup --reset
+```
+
+## Config
+
+Each binary uses its own TOML file (mode `0600`):
+
+| Binary     | Typical path (Linux)              |
+|------------|-----------------------------------|
+| `fotoly`   | `~/.config/fotoly/config.toml`    |
+| `pixelfox` | `~/.config/pixelfox/config.toml`  |
+
+```toml
+base_url = "https://fotoly.eu"
+api_key  = "pxl_…"
+```
+
+Resolution order for API key and config path: **flag > env > file**. Default base URLs are `https://fotoly.eu` and `https://pixelfox.cc`.
+
+### Environment variables
+
+| Fotoly              | PixelFox               | Purpose              |
+|---------------------|------------------------|----------------------|
+| `FOTOLY_API_KEY`    | `PIXELFOX_API_KEY`     | API key              |
+| `FOTOLY_BASE_URL`   | `PIXELFOX_BASE_URL`    | API base URL         |
+| `FOTOLY_CONFIG`     | `PIXELFOX_CONFIG`      | Config file path     |
+
+`NO_COLOR` disables ANSI colors when set.
+
+## Global flags
+
+Available on every command:
+
+| Flag         | Description                          |
+|--------------|--------------------------------------|
+| `--json`     | Machine JSON on stdout; progress on stderr |
+| `--config`   | Config file path                     |
+| `--api-key`  | API key for this invocation          |
+
+## Commands
+
+Examples use `fotoly`; `pixelfox` is the same with its own config.
+
+### Account
+
+```bash
+fotoly whoami          # alias: me
+fotoly whoami --json
+fotoly version
+```
+
+### Upload
+
+```bash
+fotoly upload photo.jpg
+fotoly up photo1.png photo2.png --album 12
+fotoly upload shot.jpg --processing original_only --no-wait
+fotoly upload shot.jpg --copy      # force clipboard
+fotoly upload shot.jpg --no-copy   # never copy
+fotoly upload shot.jpg --json
+```
+
+Flags: `--album`, `--nsfw`, `--processing` (`default` or `original_only`), `--no-wait`, `--copy`, `--no-copy`.
+
+### Images
+
+```bash
+fotoly images ls
+fotoly images ls --limit 50 --album 12 --public
+fotoly images ls --tag holiday --json
+fotoly images get <uuid>
+fotoly images delete <uuid…> --yes
+```
+
+`images ls` filters: `--limit`, `--cursor`, `--album`, `--public` / `--private` (mutually exclusive), `--nsfw` / `--sfw` (mutually exclusive), `--tag`.
+
+### Albums
+
+```bash
+fotoly albums ls
+fotoly albums ls --json
+```
+
+Lists album id, title, image count, visibility, and share URL (useful as `--album` for upload). Album create/update/delete is not supported in v1.
+
+## Two binaries
+
+`fotoly` and `pixelfox` never share config. Env prefixes do not leak across brands (`FOTOLY_*` does not affect `pixelfox`).
+
+## Development
+
+```bash
+go test ./...
+make build
+./bin/fotoly version
+./bin/pixelfox version
+```
+
+## License
+
+See [LICENSE](LICENSE).
