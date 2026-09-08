@@ -1,6 +1,7 @@
 package cli
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"strings"
@@ -68,22 +69,35 @@ func (a *App) setupRun(cmd *cobra.Command, _ []string) error {
 	if key == "" {
 		return errors.New("No API key. Use --api-key or run setup from a terminal.")
 	}
+	return a.runSetup(cmd.Context(), key, base)
+}
+
+func (a *App) runSetup(ctx context.Context, key, base string) error {
+	key = strings.TrimSpace(key)
 	if !strings.HasPrefix(key, "pxl_") {
 		fmt.Fprintln(a.Stderr, "Warning: API keys usually start with pxl_")
 	}
 
 	c := client.New(base, key, a.Brand.UserAgentString(a.Version), a.HTTPClient)
-	acc, err := c.GetProfile(cmd.Context())
+	acc, err := c.GetProfile(ctx)
 	if err != nil {
 		if client.IsUnauthorized(err) {
 			return fmt.Errorf("Invalid API key. Run '%s setup'.", a.Brand.Binary)
 		}
 		return err
 	}
-	if err := config.Save(vals.Path, config.File{BaseURL: base, APIKey: key}); err != nil {
+	dir, err := a.UserConfigDir()
+	if err != nil {
 		return err
 	}
-	fmt.Fprintf(a.Stdout, "Logged in as %s (%s) on %s\n", acc.Username, acc.Plan, base)
+	if err := config.Save(a.configPath(dir), config.File{BaseURL: base, APIKey: key}); err != nil {
+		return err
+	}
+	out := a.Stdout
+	if a.flagJSON {
+		out = a.Stderr
+	}
+	fmt.Fprintf(out, "Logged in as %s (%s) on %s\n", acc.Username, acc.Plan, base)
 	return nil
 }
 
