@@ -37,3 +37,76 @@ type UserAccountPreferences struct {
 	ThumbnailWebP       bool `json:"thumbnail_webp"`
 	ThumbnailAVIF       bool `json:"thumbnail_avif"`
 }
+
+type ImageListQuery struct {
+	Limit    int
+	Cursor   string
+	AlbumID  int64
+	IsPublic *bool
+	IsNSFW   *bool
+	Tag      string
+}
+
+type ImageCollection struct {
+	Items      []ImageSummary `json:"items"`
+	HasMore    bool           `json:"has_more"`
+	NextCursor *string        `json:"next_cursor"`
+}
+
+type ImageSummary struct {
+	ImageUUID     string `json:"image_uuid"`
+	Title         string `json:"title"`
+	Description   string `json:"description"`
+	FileName      string `json:"file_name"`
+	FileSize      int64  `json:"file_size"`
+	FileType      string `json:"file_type"`
+	Width         int    `json:"width"`
+	Height        int    `json:"height"`
+	IsPublic      bool   `json:"is_public"`
+	IsNSFW        bool   `json:"is_nsfw"`
+	ShareLink     string `json:"share_link"`
+	ViewURL       string `json:"view_url"`
+	StableURL     string `json:"stable_url"`
+	ViewCount     int    `json:"view_count"`
+	DownloadCount int    `json:"download_count"`
+	CreatedAt     string `json:"created_at"`
+	UpdatedAt     string `json:"updated_at"`
+}
+
+type ImageResource struct {
+	ImageUUID         string   `json:"image_uuid"`
+	ViewURL           string   `json:"view_url,omitempty"`
+	IsNSFW            bool     `json:"is_nsfw"`
+	Tags              []string `json:"tags,omitempty"`
+	URL               string   `json:"url,omitempty"`
+	AvailableVariants []string `json:"available_variants,omitempty"`
+}
+
+type ImageStatus struct {
+	Complete bool    `json:"complete"`
+	Failed   bool    `json:"failed"`
+	ViewURL  *string `json:"view_url"`
+}
+
+type ImageDeletionAccepted struct {
+	ImageUUID string `json:"image_uuid"`
+	Status    string `json:"status"`
+	Message   string `json:"message"`
+}
+
+type AlbumCollection struct {
+	Albums []AlbumSummary `json:"albums"`
+}
+
+type AlbumSummary struct {
+	ID          int64  `json:"id"`
+	Title       string `json:"title"`
+	Description string `json:"description"`
+	IsPublic    bool   `json:"is_public"`
+	IsNSFW      bool   `json:"is_nsfw"`
+	ShareLink   string `json:"share_link"`
+	ViewURL     string `json:"view_url"`
+	ImageCount  int64  `json:"image_count"`
+	CreatedAt   string `json:"created_at"`
+	UpdatedAt   string `json:"updated_at"`
+}
