@@ -17,12 +17,14 @@ import (
 )
 
 type uploadHarness struct {
-	srv           *httptest.Server
-	mu            sync.Mutex
-	sessionBody   client.UploadSessionRequest
-	uploadCount   int
-	statusCount   int
-	statusPending bool
+	srv                   *httptest.Server
+	mu                    sync.Mutex
+	sessionBody           client.UploadSessionRequest
+	uploadCount           int
+	statusCount           int
+	statusPending         bool
+	statusFailed          bool
+	pendingBeforeComplete int
 }
 
 func newUploadHarness(t *testing.T) *uploadHarness {
@@ -56,10 +58,17 @@ func newUploadHarness(t *testing.T) *uploadHarness {
 	mux.HandleFunc("GET /api/v1/images/{uuid}/status", func(w http.ResponseWriter, r *http.Request) {
 		h.mu.Lock()
 		h.statusCount++
-		pending := h.statusPending
+		count := h.statusCount
+		pendingForever := h.statusPending
+		failed := h.statusFailed
+		before := h.pendingBeforeComplete
 		h.mu.Unlock()
 		w.Header().Set("Content-Type", "application/json")
-		if pending {
+		if failed {
+			_, _ = io.WriteString(w, `{"complete":false,"failed":true}`)
+			return
+		}
+		if pendingForever || count <= before {
 			_, _ = io.WriteString(w, `{"complete":false,"failed":false}`)
 			return
 		}
@@ -279,5 +288,168 @@ func TestUploadProcessingTimeout(t *testing.T) {
 	}
 	if h.statuses() != 45 {
 		t.Fatalf("GetImageStatus calls=%d", h.statuses())
+	}
+}
+
+func TestUploadProcessingTTYPendingThenDone(t *testing.T) {
+	a, stdout, stderr := newTestApp(t, brand.Fotoly)
+	h := newUploadHarness(t)
+	h.pendingBeforeComplete = 1
+	attachServer(a, h.srv)
+	saveTestAPIKey(t, a, h.srv.URL)
+	path := writeTempUpload(t, "cat.jpg", "hello")
+	a.IsTTY = func() bool { return true }
+
+	a.Root().SetArgs([]string{"upload", path})
+	code := Run(a)
+	if code != 0 {
+		t.Fatalf("code=%d stderr=%s", code, stderr.String())
+	}
+	errOut := stderr.String()
+	if !strings.Contains(errOut, "processing cat.jpg") {
+		t.Fatalf("stderr=%q", errOut)
+	}
+	if !strings.Contains(errOut, "done") {
+		t.Fatalf("missing done: %q", errOut)
+	}
+	if !strings.Contains(stdout.String(), "/i/share1") {
+		t.Fatalf("stdout=%q", stdout.String())
+	}
+}
+
+func TestUploadProcessingNonTTYOneLine(t *testing.T) {
+	a, _, stderr := newTestApp(t, brand.Fotoly)
+	h := newUploadHarness(t)
+	h.pendingBeforeComplete = 1
+	attachServer(a, h.srv)
+	saveTestAPIKey(t, a, h.srv.URL)
+	path := writeTempUpload(t, "cat.jpg", "hello")
+
+	a.Root().SetArgs([]string{"upload", path})
+	code := Run(a)
+	if code != 0 {
+		t.Fatalf("code=%d stderr=%s", code, stderr.String())
+	}
+	errOut := stderr.String()
+	if strings.Count(errOut, "processing cat.jpg …") != 1 {
+		t.Fatalf("want one start line, stderr=%q", errOut)
+	}
+	if strings.Contains(errOut, "done") {
+		t.Fatalf("non-TTY must not print done: %q", errOut)
+	}
+}
+
+func TestUploadProcessingSkippedWhenAlreadyComplete(t *testing.T) {
+	a, _, stderr := newTestApp(t, brand.Fotoly)
+	h := newUploadHarness(t)
+	attachServer(a, h.srv)
+	saveTestAPIKey(t, a, h.srv.URL)
+	path := writeTempUpload(t, "cat.jpg", "hello")
+
+	a.Root().SetArgs([]string{"upload", path})
+	code := Run(a)
+	if code != 0 {
+		t.Fatalf("code=%d stderr=%s", code, stderr.String())
+	}
+	if strings.Contains(stderr.String(), "processing") {
+		t.Fatalf("no wait: stderr=%q", stderr.String())
+	}
+}
+
+func TestUploadNoWaitHasNoProcessingLine(t *testing.T) {
+	a, _, stderr := newTestApp(t, brand.Fotoly)
+	h := newUploadHarness(t)
+	attachServer(a, h.srv)
+	saveTestAPIKey(t, a, h.srv.URL)
+	path := writeTempUpload(t, "cat.jpg", "hello")
+
+	a.Root().SetArgs([]string{"upload", "--no-wait", path})
+	code := Run(a)
+	if code != 0 {
+		t.Fatalf("code=%d stderr=%s", code, stderr.String())
+	}
+	if h.statuses() != 0 {
+		t.Fatalf("status calls=%d", h.statuses())
+	}
+	if strings.Contains(stderr.String(), "processing") {
+		t.Fatalf("stderr=%q", stderr.String())
+	}
+}
+
+func TestUploadProcessingFailedNoSpinner(t *testing.T) {
+	a, _, stderr := newTestApp(t, brand.Fotoly)
+	h := newUploadHarness(t)
+	h.statusFailed = true
+	attachServer(a, h.srv)
+	saveTestAPIKey(t, a, h.srv.URL)
+	path := writeTempUpload(t, "cat.jpg", "hello")
+	a.IsTTY = func() bool { return true }
+
+	a.Root().SetArgs([]string{"upload", path})
+	code := Run(a)
+	if code != 1 {
+		t.Fatalf("code=%d stderr=%s", code, stderr.String())
+	}
+	errOut := stderr.String()
+	if !strings.Contains(errOut, "failed") {
+		t.Fatalf("stderr=%q", errOut)
+	}
+	if strings.Contains(errOut, "processing") {
+		t.Fatalf("first-poll fail must not spin: %q", errOut)
+	}
+}
+
+func TestUploadProcessingTimeoutTTYDoesNotEatError(t *testing.T) {
+	a, _, stderr := newTestApp(t, brand.Fotoly)
+	h := newUploadHarness(t)
+	h.statusPending = true
+	attachServer(a, h.srv)
+	saveTestAPIKey(t, a, h.srv.URL)
+	path := writeTempUpload(t, "cat.jpg", "hello")
+	a.IsTTY = func() bool { return true }
+	a.Sleep = func(time.Duration) {}
+
+	a.Root().SetArgs([]string{"upload", path})
+	code := Run(a)
+	if code != 1 {
+		t.Fatalf("code=%d stderr=%s", code, stderr.String())
+	}
+	if h.statuses() != 45 {
+		t.Fatalf("GetImageStatus calls=%d", h.statuses())
+	}
+	for _, line := range strings.Split(stderr.String(), "\n") {
+		if strings.Contains(line, "timed out") && strings.Contains(line, "processing") {
+			t.Fatalf("timeout eaten by spinner: %q", line)
+		}
+	}
+	if !strings.Contains(stderr.String(), "timed out") {
+		t.Fatalf("stderr=%q", stderr.String())
+	}
+}
+
+func TestUploadProcessingJSONStaysOnStderr(t *testing.T) {
+	a, stdout, stderr := newTestApp(t, brand.Fotoly)
+	h := newUploadHarness(t)
+	h.pendingBeforeComplete = 1
+	attachServer(a, h.srv)
+	saveTestAPIKey(t, a, h.srv.URL)
+	path := writeTempUpload(t, "cat.jpg", "hello")
+
+	a.Root().SetArgs([]string{"upload", "--json", path})
+	code := Run(a)
+	if code != 0 {
+		t.Fatalf("code=%d stderr=%s", code, stderr.String())
+	}
+	var results []struct {
+		OK bool `json:"ok"`
+	}
+	if err := json.Unmarshal(stdout.Bytes(), &results); err != nil {
+		t.Fatalf("stdout not JSON: %v %q", err, stdout.String())
+	}
+	if strings.Contains(stdout.String(), "processing") {
+		t.Fatalf("processing leaked to stdout: %q", stdout.String())
+	}
+	if !strings.Contains(stderr.String(), "processing cat.jpg …") {
+		t.Fatalf("stderr=%q", stderr.String())
 	}
 }

@@ -3,15 +3,21 @@ package cli
 import (
 	"encoding/json"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
+	"strings"
 	"time"
 
 	"github.com/ManuelReschke/fotoly-cli/internal/client"
 	"github.com/spf13/cobra"
 )
 
-const statusPollAttempts = 45
+const (
+	statusPollAttempts = 45
+	processingSpinner  = `|/-\`
+	processingTick     = 100 * time.Millisecond
+)
 
 type uploadResult struct {
 	File      string `json:"file"`
@@ -190,7 +196,7 @@ func (a *App) uploadOne(cmd *cobra.Command, c *client.Client, baseURL, path stri
 	}
 
 	if !noWait {
-		if err := a.waitForImage(cmd, c, res.ImageUUID); err != nil {
+		if err := a.waitForImage(cmd, c, res.ImageUUID, filepath.Base(path)); err != nil {
 			res.Error = err.Error()
 			return res
 		}
@@ -225,23 +231,95 @@ func (a *App) uploadOne(cmd *cobra.Command, c *client.Client, baseURL, path stri
 	return res
 }
 
-func (a *App) waitForImage(cmd *cobra.Command, c *client.Client, uuid string) error {
+func (a *App) waitForImage(cmd *cobra.Command, c *client.Client, uuid, name string) error {
+	wait := &processingWait{w: a.Stderr, tty: a.isTTY(), name: name}
+	ticks := int(time.Second / processingTick)
 	for i := 0; i < statusPollAttempts; i++ {
-		if i > 0 && a.Sleep != nil {
-			a.Sleep(time.Second)
+		if i > 0 {
+			for t := 0; t < ticks; t++ {
+				if a.Sleep != nil {
+					a.Sleep(processingTick)
+				}
+				wait.tick()
+			}
 		}
 		st, err := c.GetImageStatus(cmd.Context(), uuid)
 		if err != nil {
+			wait.fail()
 			return err
 		}
 		if st.Failed {
+			wait.fail()
 			return fmt.Errorf("Processing failed for %s", uuid)
 		}
 		if st.Complete {
+			wait.succeed()
 			return nil
 		}
+		if !wait.started {
+			wait.begin()
+		}
 	}
+	wait.fail()
 	return fmt.Errorf("Processing timed out for %s; check later with images get", uuid)
+}
+
+type processingWait struct {
+	w       io.Writer
+	tty     bool
+	name    string
+	start   time.Time
+	frame   int
+	width   int
+	started bool
+}
+
+func (p *processingWait) begin() {
+	p.started = true
+	p.start = time.Now()
+	if p.tty {
+		p.draw(false)
+		return
+	}
+	fmt.Fprintf(p.w, "processing %s …\n", p.name)
+}
+
+func (p *processingWait) tick() {
+	if p.started && p.tty {
+		p.draw(false)
+	}
+}
+
+func (p *processingWait) succeed() {
+	if !p.started {
+		return
+	}
+	if p.tty {
+		p.draw(true)
+		fmt.Fprintln(p.w)
+	}
+}
+
+func (p *processingWait) fail() {
+	if p.started && p.tty {
+		fmt.Fprintln(p.w)
+	}
+}
+
+func (p *processingWait) draw(done bool) {
+	var s string
+	if done {
+		s = fmt.Sprintf("processing %s done", p.name)
+	} else {
+		s = fmt.Sprintf("processing %s %c %ds", p.name, processingSpinner[p.frame%len(processingSpinner)], int(time.Since(p.start).Seconds()))
+		p.frame++
+	}
+	if len(s) < p.width {
+		s += strings.Repeat(" ", p.width-len(s))
+	} else {
+		p.width = len(s)
+	}
+	fmt.Fprintf(p.w, "\r%s", s)
 }
 
 func (a *App) uploadProgress(name string) func(sent, total int64) {
