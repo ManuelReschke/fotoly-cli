@@ -78,14 +78,23 @@ jobs:
           path: dist
           pattern: fotoly-cli_*
           merge-multiple: true
+          skip-decompress: true
       - name: Notes and checksums
         shell: bash
         run: |
           set -euo pipefail
-          find dist -mindepth 2 -type f -exec mv -t dist {} +
-          find dist -mindepth 1 -type d -empty -delete
+          mapfile -t archives < <(find dist -type f \( -name 'fotoly-cli_*.tar.gz' -o -name 'fotoly-cli_*.zip' \) | sort)
+          if [[ "${#archives[@]}" -ne 6 ]]; then
+            echo "expected 6 archives, found ${#archives[@]}" >&2
+            find dist -print >&2
+            exit 1
+          fi
+          mkdir -p release
+          for archive in "${archives[@]}"; do
+            cp "${archive}" "release/$(basename "${archive}")"
+          done
           (
-            cd dist
+            cd release
             sha256sum -- fotoly-cli_* > SHA256SUMS
           )
           bash scripts/changelog.sh "${GITHUB_REF_NAME}" > notes.md
@@ -114,7 +123,7 @@ jobs:
           fi
           if gh release view "${tag}" >/dev/null 2>&1; then
             gh release edit "${tag}" "${args[@]}"
-            gh release upload "${tag}" dist/* --clobber
+            gh release upload "${tag}" release/* --clobber
           else
-            gh release create "${tag}" "${args[@]}" dist/*
+            gh release create "${tag}" "${args[@]}" release/*
           fi
