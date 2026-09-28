@@ -6,7 +6,30 @@ Use them to set up an API key, check your account, upload images, list, inspect,
 
 ## Install
 
-Requires Go 1.26+.
+On macOS or Linux:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/ManuelReschke/fotoly-cli/main/install.sh | sh
+```
+
+On Windows:
+
+```powershell
+powershell -ExecutionPolicy ByPass -c "irm https://raw.githubusercontent.com/ManuelReschke/fotoly-cli/main/install.ps1 | iex"
+```
+
+The installer downloads the latest release for your machine, checks it against `SHA256SUMS`, and installs both `fotoly` and `pixelfox`. The default directory is `~/.local/bin` (`%USERPROFILE%\.local\bin` on Windows). A root install on macOS or Linux uses `/usr/local/bin`.
+
+Pin a release or choose the directory:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/ManuelReschke/fotoly-cli/main/install.sh | sh -s -- --version 1.0.0
+FOTOLY_INSTALL_DIR=$HOME/bin sh install.sh
+```
+
+On Windows, set `$env:FOTOLY_VERSION` or `$env:FOTOLY_INSTALL_DIR` before the installer command.
+
+With Go 1.26+ you can still install from source:
 
 ```bash
 go install github.com/ManuelReschke/fotoly-cli/cmd/fotoly@latest

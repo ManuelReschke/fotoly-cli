@@ -19,11 +19,19 @@ Env names are `<PREFIX>API_KEY`, `<PREFIX>BASE_URL`, and `<PREFIX>CONFIG`. A Fot
 
 Use the binary for the brand the user named. If they name none, use the only binary that is installed or the only config file that exists. If both brands are set up, ask which brand.
 
-If `command -v <binary>` fails:
+If `command -v <binary>` fails, install both binaries. On macOS or Linux:
 
 ```bash
-go install github.com/ManuelReschke/fotoly-cli/cmd/<binary>@latest
+curl -fsSL https://raw.githubusercontent.com/ManuelReschke/fotoly-cli/main/install.sh | sh
 ```
+
+On Windows:
+
+```powershell
+powershell -ExecutionPolicy ByPass -c "irm https://raw.githubusercontent.com/ManuelReschke/fotoly-cli/main/install.ps1 | iex"
+```
+
+The installer puts `fotoly` and `pixelfox` in `~/.local/bin`. If that directory is not on `PATH`, use the path the installer prints.
 
 ## Every call
 
