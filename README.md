@@ -156,6 +156,17 @@ make build
 ./bin/pixelfox version
 ```
 
+## Releases
+
+Push a semver tag to publish binaries and a changelog. The tag looks like `v1.2.3`. A hyphen, as in `v1.2.3-rc.1`, marks a prerelease.
+
+```bash
+git tag v1.2.3
+git push origin v1.2.3
+```
+
+The release workflow builds `fotoly` and `pixelfox` for Linux, macOS, and Windows on amd64 and arm64. Each archive contains both binaries. The release also gets `SHA256SUMS` and a changelog of the commits since the previous `v*` tag. The version inside the binary is the tag without the leading `v`.
+
 ## License
 
 See [LICENSE](LICENSE).

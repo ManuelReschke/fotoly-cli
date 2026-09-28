@@ -1,0 +1,120 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - "v[0-9]*.[0-9]*.[0-9]*"
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    name: ${{ matrix.goos }}-${{ matrix.goarch }}
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - goos: linux
+            goarch: amd64
+          - goos: linux
+            goarch: arm64
+          - goos: darwin
+            goarch: amd64
+          - goos: darwin
+            goarch: arm64
+          - goos: windows
+            goarch: amd64
+          - goos: windows
+            goarch: arm64
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-go@v7
+        with:
+          go-version-file: go.mod
+      - name: Build archive
+        shell: bash
+        env:
+          GOOS: ${{ matrix.goos }}
+          GOARCH: ${{ matrix.goarch }}
+          CGO_ENABLED: "0"
+        run: |
+          set -euo pipefail
+          version="${GITHUB_REF_NAME#v}"
+          commit="$(git rev-parse --short HEAD)"
+          ext=""
+          if [[ "${GOOS}" == "windows" ]]; then
+            ext=".exe"
+          fi
+          name="fotoly-cli_${version}_${GOOS}_${GOARCH}"
+          stage="${name}"
+          mkdir -p "dist/${stage}"
+          ldflags="-s -w -X main.version=${version} -X main.commit=${commit}"
+          go build -trimpath -ldflags "${ldflags}" -o "dist/${stage}/fotoly${ext}" ./cmd/fotoly
+          go build -trimpath -ldflags "${ldflags}" -o "dist/${stage}/pixelfox${ext}" ./cmd/pixelfox
+          mkdir -p out
+          if [[ "${GOOS}" == "windows" ]]; then
+            (cd dist && zip -r "../out/${name}.zip" "${stage}")
+          else
+            tar -C dist -czf "out/${name}.tar.gz" "${stage}"
+          fi
+      - uses: actions/upload-artifact@v7
+        with:
+          path: out/*
+          archive: false
+          if-no-files-found: error
+
+  release:
+    name: Publish
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+      - uses: actions/download-artifact@v8
+        with:
+          path: dist
+          pattern: fotoly-cli_*
+          merge-multiple: true
+      - name: Notes and checksums
+        shell: bash
+        run: |
+          set -euo pipefail
+          find dist -mindepth 2 -type f -exec mv -t dist {} +
+          find dist -mindepth 1 -type d -empty -delete
+          (
+            cd dist
+            sha256sum -- fotoly-cli_* > SHA256SUMS
+          )
+          bash scripts/changelog.sh "${GITHUB_REF_NAME}" > notes.md
+          {
+            echo "Each archive contains the \`fotoly\` and \`pixelfox\` binaries for that platform."
+            echo
+            echo "Check \`SHA256SUMS\` before you unpack an archive."
+            echo
+            cat notes.md
+            prev="$(git describe --tags --abbrev=0 --match 'v[0-9]*.[0-9]*.[0-9]*' "${GITHUB_REF_NAME}^" 2>/dev/null || true)"
+            if [[ -n "${prev}" ]]; then
+              echo
+              echo "**Full changelog:** https://github.com/${GITHUB_REPOSITORY}/compare/${prev}...${GITHUB_REF_NAME}"
+            fi
+          } > release.md
+      - name: Publish GitHub release
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          tag="${GITHUB_REF_NAME}"
+          args=(--title "${tag}" --notes-file release.md)
+          if [[ "${tag}" == *-* ]]; then
+            args+=(--prerelease)
+          fi
+          if gh release view "${tag}" >/dev/null 2>&1; then
+            gh release edit "${tag}" "${args[@]}"
+            gh release upload "${tag}" dist/* --clobber
+          else
+            gh release create "${tag}" "${args[@]}" dist/*
+          fi
