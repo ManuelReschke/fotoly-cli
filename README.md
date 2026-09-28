@@ -2,7 +2,7 @@
 
 Official command-line tools for [fotoly.eu](https://fotoly.eu) and [pixelfox.cc](https://pixelfox.cc). One Go module ships two binaries — `fotoly` and `pixelfox` — with separate configs, hosts, and environment prefixes.
 
-Use them to set up an API key, check your account, upload images, list or delete images, and list albums.
+Use them to set up an API key, check your account, upload images, list, inspect, edit, or delete images, and list albums.
 
 ## Install
 
@@ -112,10 +112,17 @@ fotoly images ls
 fotoly images ls --limit 50 --album 12 --public
 fotoly images ls --tag holiday --json
 fotoly images get <uuid>
+fotoly images status <uuid>
+fotoly images edit <uuid> --title "Cat" --private --tag holiday --tag beach
+fotoly images edit <uuid> --clear-tags
 fotoly images delete <uuid…> --yes
 ```
 
 `images ls` filters: `--limit`, `--cursor`, `--album`, `--public` / `--private` (mutually exclusive), `--nsfw` / `--sfw` (mutually exclusive), `--tag`.
+
+`images status` prints whether processing is complete or failed, and the share URL once it exists. Use it after `upload --no-wait`.
+
+`images edit` sends only the flags you set. `--title` and `--description` accept an empty string. `--public` / `--private` and `--nsfw` / `--sfw` are mutually exclusive pairs. Repeat `--tag` to replace the whole tag list. `--clear-tags` removes every tag and cannot be combined with `--tag`. At least one of these flags is required.
 
 ### Albums
 
@@ -132,7 +139,7 @@ Assistants that read [Agent Skills](https://agentskills.io) can drive this CLI f
 
 [`.agents/skills/fotoly-cli/SKILL.md`](.agents/skills/fotoly-cli/SKILL.md)
 
-Grok, OpenCode, and Codex load that path when the working directory is this repository. The same file covers both binaries. It tells the assistant to pick `fotoly` or `pixelfox` for the brand you named, pass `--json`, and stay inside the commands above: setup, whoami, upload, image list/get/delete, and album list. Album create/update/delete and later edits to title, description, or tags are outside the CLI, so the skill stops there.
+Grok, OpenCode, and Codex load that path when the working directory is this repository. The same file covers both binaries. It tells the assistant to pick `fotoly` or `pixelfox` for the brand you named, pass `--json`, and stay inside the commands above: setup, whoami, upload, image list/get/status/edit/delete, and album list. Album create/update/delete and moving an existing image onto an album are outside the CLI, so the skill stops there.
 
 To use the skill from another project, copy the folder to `~/.agents/skills/fotoly-cli/`.
 

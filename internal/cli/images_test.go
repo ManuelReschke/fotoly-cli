@@ -237,6 +237,179 @@ func TestImagesDeleteTTYDeclined(t *testing.T) {
 	}
 }
 
+func TestImagesEditRequiresAChange(t *testing.T) {
+	a, _, stderr := newTestApp(t, brand.Fotoly)
+	a.Root().SetArgs([]string{"images", "edit", "u"})
+	code := Run(a)
+	if code != 2 {
+		t.Fatalf("code=%d stderr=%s", code, stderr.String())
+	}
+	if !strings.Contains(stderr.String(), "set at least one of") {
+		t.Fatalf("stderr=%q", stderr.String())
+	}
+}
+
+func TestImagesEditPublicPrivateConflict(t *testing.T) {
+	a, _, stderr := newTestApp(t, brand.Fotoly)
+	a.Root().SetArgs([]string{"images", "edit", "u", "--public", "--private"})
+	code := Run(a)
+	if code != 2 {
+		t.Fatalf("code=%d stderr=%s", code, stderr.String())
+	}
+	if !strings.Contains(stderr.String(), "--public and --private are mutually exclusive") {
+		t.Fatalf("stderr=%q", stderr.String())
+	}
+}
+
+func TestImagesEditPatchesProvidedFields(t *testing.T) {
+	var gotMethod, gotPath string
+	var gotBody map[string]json.RawMessage
+	mux := http.NewServeMux()
+	mux.HandleFunc("PATCH /api/v1/images/{uuid}", func(w http.ResponseWriter, r *http.Request) {
+		gotMethod = r.Method
+		gotPath = r.URL.Path
+		if err := json.NewDecoder(r.Body).Decode(&gotBody); err != nil {
+			t.Errorf("decode body: %v", err)
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = io.WriteString(w, `{"image_uuid":"u","title":"Cat","description":"","file_name":"cat.jpg","file_size":100,"file_type":"image/jpeg","width":1,"height":1,"is_public":false,"is_nsfw":true,"share_link":"s","view_url":"/i/s","stable_url":"https://x/s","view_count":0,"download_count":0,"created_at":"2026-01-01T00:00:00Z","updated_at":"2026-01-01T00:00:00Z","tags":[]}`)
+	})
+	srv := httptest.NewServer(mux)
+	t.Cleanup(srv.Close)
+
+	a, stdout, stderr := newTestApp(t, brand.Fotoly)
+	attachServer(a, srv)
+	saveTestAPIKey(t, a, srv.URL)
+	a.Root().SetArgs([]string{"images", "edit", "u", "--title", "Cat", "--description", "", "--private", "--nsfw", "--clear-tags"})
+	code := Run(a)
+	if code != 0 {
+		t.Fatalf("code=%d stderr=%s", code, stderr.String())
+	}
+	if gotMethod != http.MethodPatch || gotPath != "/api/v1/images/u" {
+		t.Fatalf("method=%s path=%s", gotMethod, gotPath)
+	}
+	if _, ok := gotBody["is_public"]; !ok || string(gotBody["is_public"]) != "false" {
+		t.Fatalf("body=%v", gotBody)
+	}
+	if string(gotBody["title"]) != `"Cat"` || string(gotBody["description"]) != `""` || string(gotBody["is_nsfw"]) != `true` || string(gotBody["tags"]) != `[]` {
+		t.Fatalf("body=%v", gotBody)
+	}
+	out := stdout.String()
+	if !strings.Contains(out, "Title: Cat") || !strings.Contains(out, "NSFW: true") || !strings.Contains(out, "Public: false") || !strings.Contains(out, srv.URL+"/i/s") {
+		t.Fatalf("stdout=%q", out)
+	}
+}
+
+func TestImagesEditNSFWConflict(t *testing.T) {
+	a, _, stderr := newTestApp(t, brand.Fotoly)
+	a.Root().SetArgs([]string{"images", "edit", "u", "--nsfw", "--sfw"})
+	code := Run(a)
+	if code != 2 {
+		t.Fatalf("code=%d stderr=%s", code, stderr.String())
+	}
+	if !strings.Contains(stderr.String(), "--nsfw and --sfw are mutually exclusive") {
+		t.Fatalf("stderr=%q", stderr.String())
+	}
+}
+
+func TestImagesEditTagAndClearConflict(t *testing.T) {
+	a, _, stderr := newTestApp(t, brand.Fotoly)
+	a.Root().SetArgs([]string{"images", "edit", "u", "--tag", "holiday", "--clear-tags"})
+	code := Run(a)
+	if code != 2 {
+		t.Fatalf("code=%d stderr=%s", code, stderr.String())
+	}
+	if !strings.Contains(stderr.String(), "--tag and --clear-tags are mutually exclusive") {
+		t.Fatalf("stderr=%q", stderr.String())
+	}
+}
+
+func TestImagesEditJSON(t *testing.T) {
+	var gotBody map[string]json.RawMessage
+	mux := http.NewServeMux()
+	mux.HandleFunc("PATCH /api/v1/images/{uuid}", func(w http.ResponseWriter, r *http.Request) {
+		if err := json.NewDecoder(r.Body).Decode(&gotBody); err != nil {
+			t.Errorf("decode body: %v", err)
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = io.WriteString(w, `{"image_uuid":"u","title":"Cat","description":"day","file_name":"cat.jpg","file_size":100,"file_type":"image/jpeg","width":1,"height":1,"is_public":true,"is_nsfw":false,"share_link":"s","view_url":"/i/s","stable_url":"https://x/s","view_count":0,"download_count":0,"created_at":"2026-01-01T00:00:00Z","updated_at":"2026-01-01T00:00:00Z","tags":["holiday","beach"]}`)
+	})
+	srv := httptest.NewServer(mux)
+	t.Cleanup(srv.Close)
+
+	a, stdout, stderr := newTestApp(t, brand.Fotoly)
+	attachServer(a, srv)
+	saveTestAPIKey(t, a, srv.URL)
+	a.Root().SetArgs([]string{"images", "edit", "u", "--tag", "holiday", "--tag", "beach", "--json"})
+	code := Run(a)
+	if code != 0 {
+		t.Fatalf("code=%d stderr=%s", code, stderr.String())
+	}
+	var img map[string]any
+	if err := json.Unmarshal(stdout.Bytes(), &img); err != nil {
+		t.Fatalf("stdout not JSON: %v %q", err, stdout.String())
+	}
+	tags, _ := img["tags"].([]any)
+	if img["title"] != "Cat" || len(tags) != 2 || tags[0] != "holiday" {
+		t.Fatalf("stdout=%q", stdout.String())
+	}
+	if string(gotBody["tags"]) != `["holiday","beach"]` || len(gotBody) != 1 {
+		t.Fatalf("body=%v", gotBody)
+	}
+}
+
+func TestImagesStatus(t *testing.T) {
+	mux := http.NewServeMux()
+	mux.HandleFunc("GET /api/v1/images/{uuid}/status", func(w http.ResponseWriter, r *http.Request) {
+		if r.PathValue("uuid") != "u" {
+			t.Errorf("uuid=%s", r.PathValue("uuid"))
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = io.WriteString(w, `{"complete":true,"failed":false,"view_url":"/i/s"}`)
+	})
+	srv := httptest.NewServer(mux)
+	t.Cleanup(srv.Close)
+
+	a, stdout, stderr := newTestApp(t, brand.Fotoly)
+	attachServer(a, srv)
+	saveTestAPIKey(t, a, srv.URL)
+	a.Root().SetArgs([]string{"images", "status", "u"})
+	code := Run(a)
+	if code != 0 {
+		t.Fatalf("code=%d stderr=%s", code, stderr.String())
+	}
+	out := stdout.String()
+	if !strings.Contains(out, "Complete: true") || !strings.Contains(out, "Failed: false") || !strings.Contains(out, srv.URL+"/i/s") {
+		t.Fatalf("stdout=%q", out)
+	}
+}
+
+func TestImagesStatusJSONNullViewURL(t *testing.T) {
+	mux := http.NewServeMux()
+	mux.HandleFunc("GET /api/v1/images/{uuid}/status", func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = io.WriteString(w, `{"complete":false,"failed":true,"view_url":null}`)
+	})
+	srv := httptest.NewServer(mux)
+	t.Cleanup(srv.Close)
+
+	a, stdout, stderr := newTestApp(t, brand.Fotoly)
+	attachServer(a, srv)
+	saveTestAPIKey(t, a, srv.URL)
+	a.Root().SetArgs([]string{"images", "status", "u", "--json"})
+	code := Run(a)
+	if code != 0 {
+		t.Fatalf("code=%d stderr=%s", code, stderr.String())
+	}
+	var st map[string]any
+	if err := json.Unmarshal(stdout.Bytes(), &st); err != nil {
+		t.Fatalf("stdout not JSON: %v %q", err, stdout.String())
+	}
+	if st["complete"] != false || st["failed"] != true || st["view_url"] != nil {
+		t.Fatalf("stdout=%q", stdout.String())
+	}
+}
+
 func TestImagesLSJSONHasMoreCursorOnStderr(t *testing.T) {
 	a, stdout, stderr := newTestApp(t, brand.Fotoly)
 	srv := mediaServer(t, nil)

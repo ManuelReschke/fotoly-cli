@@ -1,6 +1,6 @@
 ---
 name: fotoly-cli
-description: Use when uploading, listing, or deleting images, listing albums, or checking the account on Fotoly or PixelFox with the fotoly or pixelfox CLI. Triggers include fotoly, pixelfox, fotoly-cli, fotoly.eu, pixelfox.cc, API key, Bild hochladen, Alben auflisten, and /fotoly-cli.
+description: Use when uploading, listing, editing, or deleting images, checking processing status, listing albums, or checking the account on Fotoly or PixelFox with the fotoly or pixelfox CLI. Triggers include fotoly, pixelfox, fotoly-cli, fotoly.eu, pixelfox.cc, API key, Bild hochladen, Alben auflisten, and /fotoly-cli.
 user-invocable: true
 ---
 
@@ -51,11 +51,15 @@ When the message is `Invalid API key. Run '<binary> setup'.`, stop and ask for a
 
 `whoami` (alias `me`) returns `username`, `email`, `plan`, `stats.images.count`, `stats.images.storage_used_bytes`, `stats.albums.count`, and `limits.max_upload_bytes`.
 
-`upload <files...>` (alias `up`). Always pass `--no-copy`. Optional flags: `--album <id>` from `albums ls`, `--nsfw`, `--processing default|original_only`, `--no-wait`. stdout is an array of `{file, ok, image_uuid, url, duplicate, error}`. `url` is absolute when `ok` is true. The command waits until processing finishes. `--no-wait` returns before that; use `images get` later. Exit `1` if any file failed; still read the stdout array. This stderr line means the image was stored but not added to the album: `album <id> was not bound; uploading without album`.
+`upload <files...>` (alias `up`). Always pass `--no-copy`. Optional flags: `--album <id>` from `albums ls`, `--nsfw`, `--processing default|original_only`, `--no-wait`. stdout is an array of `{file, ok, image_uuid, url, duplicate, error}`. `url` is absolute when `ok` is true. The command waits until processing finishes. `--no-wait` returns before that; use `images status` until `complete` is true, then `images get`. Exit `1` if any file failed; still read the stdout array. This stderr line means the image was stored but not added to the album: `album <id> was not bound; uploading without album`.
 
 `images ls` filters: `--limit` (default 25, maximum 100), `--cursor`, `--album`, `--public` or `--private`, `--nsfw` or `--sfw`, `--tag`. Each pair is mutually exclusive. stdout is `{items, has_more, next_cursor}`. An item has `image_uuid`, `title`, `description`, `file_name`, `file_size`, `is_public`, `is_nsfw`, `view_url`. The list has no tags. When `has_more` is true and the user wants the rest, repeat with `--cursor` set to `next_cursor`.
 
 `images get <uuid>` returns `image_uuid`, `url`, `view_url`, `is_nsfw`, `tags`, and `available_variants`.
+
+`images status <uuid>` returns `complete`, `failed`, and `view_url`. `view_url` is null until processing finishes.
+
+`images edit <uuid>` updates metadata. Send only the flags that should change: `--title`, `--description` (empty string clears), `--public` or `--private`, `--nsfw` or `--sfw`, repeatable `--tag` (replaces the whole list), or `--clear-tags`. Each pair is mutually exclusive. `--tag` with `--clear-tags` is a usage error. At least one flag is required. stdout is the updated image, including `tags`.
 
 `images delete <uuid...> --yes` runs only after the user has explicitly asked to delete those images. Without `--yes`, a non-interactive run deletes nothing and exits `1` with `use --yes to delete`. stdout is an array of `{image_uuid, status, message, error}`.
 
@@ -69,6 +73,5 @@ Say so and stop. Do not invent a flag and do not call the HTTP API.
 
 - create, edit, or delete an album
 - add or remove an existing image on an album
-- change title, description, tags, or visibility after upload (`--nsfw` applies only during upload)
 
 `setup --reset` deletes that brand's config. Run it only when the user asks to log out.

@@ -512,6 +512,49 @@ func TestGetProfileRetriesNetworkOnce(t *testing.T) {
 	}
 }
 
+func TestUpdateImageSendsOnlyProvidedFields(t *testing.T) {
+	var gotMethod, gotPath, gotKey string
+	var gotBody map[string]json.RawMessage
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gotMethod = r.Method
+		gotPath = r.URL.Path
+		gotKey = r.Header.Get("X-API-Key")
+		if err := json.NewDecoder(r.Body).Decode(&gotBody); err != nil {
+			t.Errorf("decode body: %v", err)
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = io.WriteString(w, `{"image_uuid":"u","title":"Cat","description":"","file_name":"cat.jpg","file_size":100,"file_type":"image/jpeg","width":1,"height":1,"is_public":false,"is_nsfw":false,"share_link":"s","view_url":"/i/s","stable_url":"https://x/s","view_count":0,"download_count":0,"created_at":"2026-01-01T00:00:00Z","updated_at":"2026-01-01T00:00:00Z","tags":["holiday"]}`)
+	}))
+	defer srv.Close()
+
+	title := "Cat"
+	description := ""
+	public := false
+	tags := []string{}
+	c := New(srv.URL, "pxl_test", "fotoly-cli/dev", srv.Client())
+	img, err := c.UpdateImage(context.Background(), "u", ImageUpdate{
+		Title:       &title,
+		Description: &description,
+		IsPublic:    &public,
+		Tags:        &tags,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if gotMethod != http.MethodPatch || gotPath != "/api/v1/images/u" || gotKey != "pxl_test" {
+		t.Fatalf("method=%s path=%s key=%s", gotMethod, gotPath, gotKey)
+	}
+	if _, ok := gotBody["is_nsfw"]; ok {
+		t.Fatalf("omitted field was sent: %s", gotBody)
+	}
+	if string(gotBody["title"]) != `"Cat"` || string(gotBody["description"]) != `""` || string(gotBody["is_public"]) != `false` || string(gotBody["tags"]) != `[]` {
+		t.Fatalf("body=%v", gotBody)
+	}
+	if img.ImageUUID != "u" || img.Title != "Cat" || img.IsPublic || len(img.Tags) != 1 || img.Tags[0] != "holiday" {
+		t.Fatalf("img=%+v", img)
+	}
+}
+
 type roundTripperFunc func(*http.Request) (*http.Response, error)
 
 func (f roundTripperFunc) RoundTrip(r *http.Request) (*http.Response, error) {

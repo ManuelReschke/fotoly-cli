@@ -261,7 +261,7 @@ func (a *App) waitForImage(cmd *cobra.Command, c *client.Client, uuid, name stri
 		}
 	}
 	wait.fail()
-	return fmt.Errorf("Processing timed out for %s; check later with images get", uuid)
+	return fmt.Errorf("Processing timed out for %s; check later with images status", uuid)
 }
 
 type processingWait struct {

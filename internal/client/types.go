@@ -73,6 +73,22 @@ type ImageSummary struct {
 	UpdatedAt     string `json:"updated_at"`
 }
 
+// ImageUpdate is a partial metadata write. Nil fields are omitted so the server leaves them unchanged.
+// A non-nil empty Tags slice clears every tag.
+type ImageUpdate struct {
+	Title       *string   `json:"title,omitempty"`
+	Description *string   `json:"description,omitempty"`
+	IsPublic    *bool     `json:"is_public,omitempty"`
+	IsNSFW      *bool     `json:"is_nsfw,omitempty"`
+	Tags        *[]string `json:"tags,omitempty"`
+}
+
+// ImageEdit is the image summary returned by a metadata update, including tags.
+type ImageEdit struct {
+	ImageSummary
+	Tags []string `json:"tags"`
+}
+
 type ImageResource struct {
 	ImageUUID         string           `json:"image_uuid"`
 	ViewURL           string           `json:"view_url,omitempty"`

@@ -16,6 +16,8 @@ func (a *App) imagesCommand() *cobra.Command {
 	cmd := &cobra.Command{Use: "images", Short: "Manage images"}
 	cmd.AddCommand(a.imagesLSCommand())
 	cmd.AddCommand(a.imagesGetCommand())
+	cmd.AddCommand(a.imagesStatusCommand())
+	cmd.AddCommand(a.imagesEditCommand())
 	cmd.AddCommand(a.imagesDeleteCommand())
 	return cmd
 }
@@ -153,6 +155,146 @@ func (a *App) imagesGetRun(cmd *cobra.Command, args []string) error {
 	if len(img.AvailableVariants) > 0 {
 		fmt.Fprintf(a.Stdout, "Variants: %s\n", strings.Join(img.AvailableVariants, ", "))
 	}
+	return nil
+}
+
+func (a *App) imagesStatusCommand() *cobra.Command {
+	return &cobra.Command{
+		Use:   "status <uuid>",
+		Short: "Show image processing status",
+		Args:  cobra.ExactArgs(1),
+		RunE:  a.imagesStatusRun,
+	}
+}
+
+func (a *App) imagesStatusRun(cmd *cobra.Command, args []string) error {
+	c, vals, err := a.requireClient(cmd)
+	if err != nil {
+		return err
+	}
+	st, err := c.GetImageStatus(cmd.Context(), args[0])
+	if err != nil {
+		return err
+	}
+	if a.flagJSON {
+		return json.NewEncoder(a.Stdout).Encode(st)
+	}
+	fmt.Fprintf(a.Stdout, "Complete: %s\n", strconv.FormatBool(st.Complete))
+	fmt.Fprintf(a.Stdout, "Failed: %s\n", strconv.FormatBool(st.Failed))
+	if st.ViewURL != nil && *st.ViewURL != "" {
+		fmt.Fprintf(a.Stdout, "URL: %s\n", resolvedShare(vals.BaseURL, *st.ViewURL))
+	}
+	return nil
+}
+
+func (a *App) imagesEditCommand() *cobra.Command {
+	cmd := &cobra.Command{
+		Use:   "edit <uuid>",
+		Short: "Update image metadata",
+		Args:  cobra.ExactArgs(1),
+		RunE:  a.imagesEditRun,
+	}
+	cmd.Flags().String("title", "", "new title")
+	cmd.Flags().String("description", "", "new description")
+	cmd.Flags().Bool("public", false, "make the image public")
+	cmd.Flags().Bool("private", false, "make the image private")
+	cmd.Flags().Bool("nsfw", false, "mark the image NSFW")
+	cmd.Flags().Bool("sfw", false, "mark the image SFW")
+	cmd.Flags().StringArray("tag", nil, "replace all tags; repeat for each tag")
+	cmd.Flags().Bool("clear-tags", false, "remove all tags")
+	return cmd
+}
+
+func (a *App) imagesEditRun(cmd *cobra.Command, args []string) error {
+	public, err := cmd.Flags().GetBool("public")
+	if err != nil {
+		return err
+	}
+	private, err := cmd.Flags().GetBool("private")
+	if err != nil {
+		return err
+	}
+	if public && private {
+		return fmt.Errorf("%w: --public and --private are mutually exclusive", ErrUsage)
+	}
+	nsfw, err := cmd.Flags().GetBool("nsfw")
+	if err != nil {
+		return err
+	}
+	sfw, err := cmd.Flags().GetBool("sfw")
+	if err != nil {
+		return err
+	}
+	if nsfw && sfw {
+		return fmt.Errorf("%w: --nsfw and --sfw are mutually exclusive", ErrUsage)
+	}
+	clearTags, err := cmd.Flags().GetBool("clear-tags")
+	if err != nil {
+		return err
+	}
+	tags, err := cmd.Flags().GetStringArray("tag")
+	if err != nil {
+		return err
+	}
+	if clearTags && cmd.Flags().Changed("tag") {
+		return fmt.Errorf("%w: --tag and --clear-tags are mutually exclusive", ErrUsage)
+	}
+	titleChanged := cmd.Flags().Changed("title")
+	descriptionChanged := cmd.Flags().Changed("description")
+	if !titleChanged && !descriptionChanged && !public && !private && !nsfw && !sfw && !clearTags && !cmd.Flags().Changed("tag") {
+		return fmt.Errorf("%w: set at least one of --title, --description, --public, --private, --nsfw, --sfw, --tag, or --clear-tags", ErrUsage)
+	}
+
+	var req client.ImageUpdate
+	if titleChanged {
+		title, err := cmd.Flags().GetString("title")
+		if err != nil {
+			return err
+		}
+		req.Title = &title
+	}
+	if descriptionChanged {
+		description, err := cmd.Flags().GetString("description")
+		if err != nil {
+			return err
+		}
+		req.Description = &description
+	}
+	if public {
+		req.IsPublic = boolPtr(true)
+	} else if private {
+		req.IsPublic = boolPtr(false)
+	}
+	if nsfw {
+		req.IsNSFW = boolPtr(true)
+	} else if sfw {
+		req.IsNSFW = boolPtr(false)
+	}
+	if clearTags {
+		empty := []string{}
+		req.Tags = &empty
+	} else if cmd.Flags().Changed("tag") {
+		req.Tags = &tags
+	}
+
+	c, vals, err := a.requireClient(cmd)
+	if err != nil {
+		return err
+	}
+	img, err := c.UpdateImage(cmd.Context(), args[0], req)
+	if err != nil {
+		return err
+	}
+	if a.flagJSON {
+		return json.NewEncoder(a.Stdout).Encode(img)
+	}
+	fmt.Fprintf(a.Stdout, "UUID: %s\n", img.ImageUUID)
+	fmt.Fprintf(a.Stdout, "Title: %s\n", img.Title)
+	fmt.Fprintf(a.Stdout, "Description: %s\n", img.Description)
+	fmt.Fprintf(a.Stdout, "Public: %s\n", strconv.FormatBool(img.IsPublic))
+	fmt.Fprintf(a.Stdout, "NSFW: %s\n", strconv.FormatBool(img.IsNSFW))
+	fmt.Fprintf(a.Stdout, "Tags: %s\n", strings.Join(img.Tags, ", "))
+	fmt.Fprintf(a.Stdout, "URL: %s\n", resolvedShare(vals.BaseURL, img.ViewURL))
 	return nil
 }
 

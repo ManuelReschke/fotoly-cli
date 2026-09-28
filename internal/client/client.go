@@ -98,6 +98,14 @@ func (c *Client) GetImageStatus(ctx context.Context, uuid string) (*ImageStatus,
 	return &st, nil
 }
 
+func (c *Client) UpdateImage(ctx context.Context, uuid string, req ImageUpdate) (*ImageEdit, error) {
+	var img ImageEdit
+	if err := c.doJSONBody(ctx, http.MethodPatch, "/images/"+url.PathEscape(uuid), req, &img); err != nil {
+		return nil, err
+	}
+	return &img, nil
+}
+
 func (c *Client) DeleteImage(ctx context.Context, uuid string) (*ImageDeletionAccepted, error) {
 	var acc ImageDeletionAccepted
 	if err := c.doJSON(ctx, http.MethodDelete, "/images/"+url.PathEscape(uuid), &acc); err != nil {
