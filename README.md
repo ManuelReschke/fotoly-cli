@@ -1,3 +1,5 @@
+![Fotoly and PixelFox](docs/banner.jpg)
+
 # fotoly-cli
 
 Official command-line tools for [fotoly.eu](https://fotoly.eu) and [pixelfox.cc](https://pixelfox.cc). One Go module ships two binaries — `fotoly` and `pixelfox` — with separate configs, hosts, and environment prefixes.
