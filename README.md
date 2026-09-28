@@ -126,6 +126,16 @@ fotoly albums ls --json
 
 Lists album id, title, image count, visibility, and share URL (useful as `--album` for upload). Album create/update/delete is not supported in v1.
 
+## Agent skill
+
+Assistants that read [Agent Skills](https://agentskills.io) can drive this CLI from the skill in the repo:
+
+[`.agents/skills/fotoly-cli/SKILL.md`](.agents/skills/fotoly-cli/SKILL.md)
+
+Grok, OpenCode, and Codex load that path when the working directory is this repository. The same file covers both binaries. It tells the assistant to pick `fotoly` or `pixelfox` for the brand you named, pass `--json`, and stay inside the commands above: setup, whoami, upload, image list/get/delete, and album list. Album create/update/delete and later edits to title, description, or tags are outside the CLI, so the skill stops there.
+
+To use the skill from another project, copy the folder to `~/.agents/skills/fotoly-cli/`.
+
 ## Two binaries
 
 `fotoly` and `pixelfox` never share config. Env prefixes do not leak across brands (`FOTOLY_*` does not affect `pixelfox`).
