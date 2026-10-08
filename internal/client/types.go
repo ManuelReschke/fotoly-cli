@@ -149,16 +149,171 @@ type AlbumCollection struct {
 }
 
 type AlbumSummary struct {
+	ID               int64   `json:"id"`
+	Title            string  `json:"title"`
+	Description      string  `json:"description"`
+	IsPublic         bool    `json:"is_public"`
+	IsNSFW           bool    `json:"is_nsfw"`
+	ShareLink        string  `json:"share_link"`
+	ViewURL          string  `json:"view_url"`
+	ImageCount       int64   `json:"image_count"`
+	CoverImageUUID   *string `json:"cover_image_uuid,omitempty"`
+	ImageSortOrder   string  `json:"image_sort_order,omitempty"`
+	HasSharePassword *bool   `json:"has_share_password,omitempty"`
+	CreatedAt        string  `json:"created_at"`
+	UpdatedAt        string  `json:"updated_at"`
+}
+
+// AlbumCreate is a new album. Nil fields are omitted so the server defaults apply.
+type AlbumCreate struct {
+	Title          string  `json:"title"`
+	Description    *string `json:"description,omitempty"`
+	IsPublic       *bool   `json:"is_public,omitempty"`
+	IsNSFW         *bool   `json:"is_nsfw,omitempty"`
+	SharePassword  *string `json:"share_password,omitempty"`
+	ImageSortOrder *string `json:"image_sort_order,omitempty"`
+}
+
+// AlbumUpdate is a partial album write. Nil fields stay unchanged.
+// A non-nil empty SharePassword clears the password.
+type AlbumUpdate struct {
+	Title          *string `json:"title,omitempty"`
+	Description    *string `json:"description,omitempty"`
+	IsPublic       *bool   `json:"is_public,omitempty"`
+	IsNSFW         *bool   `json:"is_nsfw,omitempty"`
+	SharePassword  *string `json:"share_password,omitempty"`
+	ImageSortOrder *string `json:"image_sort_order,omitempty"`
+}
+
+type AlbumImageCollection struct {
+	Album  AlbumSummary        `json:"album"`
+	Images []AlbumImageSummary `json:"images"`
+}
+
+type AlbumImageSummary struct {
+	ID                int64    `json:"id"`
+	ImageUUID         string   `json:"image_uuid"`
+	Title             string   `json:"title"`
+	Description       string   `json:"description"`
+	FileName          string   `json:"file_name"`
+	FileSize          int64    `json:"file_size"`
+	FileType          string   `json:"file_type"`
+	Width             int      `json:"width"`
+	Height            int      `json:"height"`
+	IsPublic          bool     `json:"is_public"`
+	IsNSFW            bool     `json:"is_nsfw"`
+	Tags              []string `json:"tags"`
+	ProcessingProfile string   `json:"processing_profile,omitempty"`
+	ShareLink         string   `json:"share_link"`
+	ViewURL           string   `json:"view_url"`
+	ViewCount         int64    `json:"view_count"`
+	DownloadCount     int64    `json:"download_count"`
+	LastViewedAt      *string  `json:"last_viewed_at"`
+	CreatedAt         string   `json:"created_at"`
+	UpdatedAt         string   `json:"updated_at"`
+}
+
+type AlbumAddImagesResult struct {
+	Added           []string `json:"added"`
+	AlreadyAssigned []string `json:"already_assigned"`
+	ImageCount      int64    `json:"image_count"`
+}
+
+type AlbumMemberCollection struct {
+	Members []AlbumMember `json:"members"`
+}
+
+type AlbumMember struct {
+	UserID    int64  `json:"user_id"`
+	Username  string `json:"username"`
+	Role      string `json:"role"`
+	Origin    string `json:"origin"`
+	CreatedAt string `json:"created_at"`
+}
+
+type AlbumMemberResult struct {
+	AlbumMember
+	AlreadyMember bool `json:"already_member"`
+}
+
+// AlbumMemberInvite sends exactly one of UserID or Username.
+type AlbumMemberInvite struct {
+	UserID   *int64  `json:"user_id,omitempty"`
+	Username *string `json:"username,omitempty"`
+}
+
+type AlbumMemberCandidate struct {
+	UserID   int64  `json:"user_id"`
+	Username string `json:"username"`
+}
+
+type AlbumCategoryCollection struct {
+	Categories []AlbumCategory `json:"categories"`
+}
+
+type AlbumCategory struct {
+	ID         int64  `json:"id"`
+	Name       string `json:"name"`
+	Slug       string `json:"slug"`
+	Scope      string `json:"scope"`
+	AlbumCount int64  `json:"album_count"`
+}
+
+type ImageLikeState struct {
+	ImageUUID string `json:"image_uuid"`
+	Liked     bool   `json:"liked"`
+	LikeCount int64  `json:"like_count"`
+}
+
+type NotificationQuery struct {
+	Limit  *int
+	Cursor string
+}
+
+type NotificationCollection struct {
+	UnreadCount int64          `json:"unread_count"`
+	HasMore     bool           `json:"has_more"`
+	NextCursor  *string        `json:"next_cursor"`
+	Items       []Notification `json:"items"`
+}
+
+type Notification struct {
 	ID          int64  `json:"id"`
+	Type        string `json:"type"`
 	Title       string `json:"title"`
-	Description string `json:"description"`
-	IsPublic    bool   `json:"is_public"`
-	IsNSFW      bool   `json:"is_nsfw"`
-	ShareLink   string `json:"share_link"`
-	ViewURL     string `json:"view_url"`
-	ImageCount  int64  `json:"image_count"`
-	CreatedAt   string `json:"created_at"`
-	UpdatedAt   string `json:"updated_at"`
+	Body        string `json:"body"`
+	TargetURL   string `json:"target_url"`
+	IsRead      bool   `json:"is_read"`
+	ActorName   string `json:"actor_name"`
+	ActorCount  int    `json:"actor_count"`
+	EventCount  int    `json:"event_count"`
+	LastEventAt string `json:"last_event_at"`
+}
+
+type ImageCommentCollection struct {
+	ImageUUID  string         `json:"image_uuid"`
+	TotalCount int64          `json:"total_count"`
+	Comments   []ImageComment `json:"comments"`
+}
+
+type ImageComment struct {
+	ID         int64          `json:"id"`
+	UserID     int64          `json:"user_id"`
+	Username   string         `json:"username"`
+	Content    string         `json:"content"`
+	CreatedAt  string         `json:"created_at"`
+	LikeCount  int            `json:"like_count"`
+	Liked      bool           `json:"liked"`
+	ReplyCount int            `json:"reply_count"`
+	CanDelete  bool           `json:"can_delete"`
+	Deleted    bool           `json:"deleted"`
+	ParentID   *int64         `json:"parent_id,omitempty"`
+	Replies    []ImageComment `json:"replies"`
+}
+
+type ImageCommentCreate struct {
+	Content  string `json:"content"`
+	ParentID *int64 `json:"parent_id,omitempty"`
 }
 
 type UploadSessionRequest struct {

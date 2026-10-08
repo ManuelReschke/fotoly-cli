@@ -24,7 +24,7 @@ type stubPrompter struct {
 func (s stubPrompter) PromptSetup(brand.Brand, string) (string, string, error) {
 	return s.key, s.url, s.err
 }
-func (s stubPrompter) ConfirmDelete(int) (bool, error) { return s.confirm, nil }
+func (s stubPrompter) Confirm(string) (bool, error) { return s.confirm, nil }
 
 func profileServer(t *testing.T, status int, username, plan string) *httptest.Server {
 	t.Helper()

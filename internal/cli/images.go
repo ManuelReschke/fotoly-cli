@@ -2,10 +2,11 @@ package cli
 
 import (
 	"encoding/json"
-	"errors"
 	"fmt"
+	"io"
 	"strconv"
 	"strings"
+	"unicode/utf8"
 
 	"github.com/ManuelReschke/fotoly-cli/internal/client"
 	"github.com/ManuelReschke/fotoly-cli/internal/ui"
@@ -19,6 +20,9 @@ func (a *App) imagesCommand() *cobra.Command {
 	cmd.AddCommand(a.imagesStatusCommand())
 	cmd.AddCommand(a.imagesEditCommand())
 	cmd.AddCommand(a.imagesDeleteCommand())
+	cmd.AddCommand(a.imagesLikeCommand())
+	cmd.AddCommand(a.imagesUnlikeCommand())
+	cmd.AddCommand(a.imagesCommentsCommand())
 	return cmd
 }
 
@@ -317,23 +321,9 @@ type imageDeleteResult struct {
 }
 
 func (a *App) imagesDeleteRun(cmd *cobra.Command, args []string) error {
-	yes, err := cmd.Flags().GetBool("yes")
-	if err != nil {
+	ok, err := a.confirmDestructive(cmd, fmt.Sprintf("Delete %d image(s)?", len(args)), "use --yes to delete")
+	if err != nil || !ok {
 		return err
-	}
-	if !yes {
-		if a.IsTTY != nil && a.IsTTY() && a.Prompter != nil {
-			ok, err := a.Prompter.ConfirmDelete(len(args))
-			if err != nil {
-				return err
-			}
-			if !ok {
-				fmt.Fprintln(a.Stdout, "Aborted.")
-				return nil
-			}
-		} else {
-			return errors.New("use --yes to delete")
-		}
 	}
 
 	c, _, err := a.requireClient(cmd)
@@ -369,6 +359,239 @@ func (a *App) imagesDeleteRun(cmd *cobra.Command, args []string) error {
 	}
 	if failed > 0 {
 		return fmt.Errorf("%d image(s) failed to delete", failed)
+	}
+	return nil
+}
+
+func (a *App) imagesLikeCommand() *cobra.Command {
+	return &cobra.Command{
+		Use:   "like <uuid>",
+		Short: "Like an image",
+		Args:  cobra.ExactArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			return a.imagesLikeRun(cmd, args[0], true)
+		},
+	}
+}
+
+func (a *App) imagesUnlikeCommand() *cobra.Command {
+	return &cobra.Command{
+		Use:   "unlike <uuid>",
+		Short: "Remove your like from an image",
+		Args:  cobra.ExactArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			return a.imagesLikeRun(cmd, args[0], false)
+		},
+	}
+}
+
+func (a *App) imagesLikeRun(cmd *cobra.Command, raw string, like bool) error {
+	uuids, err := parseUUIDs([]string{raw})
+	if err != nil {
+		return err
+	}
+	c, _, err := a.requireClient(cmd)
+	if err != nil {
+		return err
+	}
+	var st *client.ImageLikeState
+	if like {
+		st, err = c.LikeImage(cmd.Context(), uuids[0])
+	} else {
+		st, err = c.UnlikeImage(cmd.Context(), uuids[0])
+	}
+	if err != nil {
+		return err
+	}
+	if a.flagJSON {
+		return json.NewEncoder(a.Stdout).Encode(st)
+	}
+	fmt.Fprintf(a.Stdout, "UUID: %s\n", st.ImageUUID)
+	fmt.Fprintf(a.Stdout, "Liked: %s\n", strconv.FormatBool(st.Liked))
+	fmt.Fprintf(a.Stdout, "Likes: %d\n", st.LikeCount)
+	return nil
+}
+
+func (a *App) imagesCommentsCommand() *cobra.Command {
+	cmd := &cobra.Command{Use: "comments", Short: "Manage image comments"}
+	cmd.AddCommand(a.imagesCommentsLSCommand())
+	cmd.AddCommand(a.imagesCommentsAddCommand())
+	cmd.AddCommand(a.imagesCommentsDeleteCommand())
+	return cmd
+}
+
+func (a *App) imagesCommentsLSCommand() *cobra.Command {
+	return &cobra.Command{
+		Use:   "ls <uuid>",
+		Short: "List the newest comments on an image",
+		Long:  "Shows the newest 30 top-level comments and their replies. Older roots are omitted. total_count still counts every comment that is not deleted.",
+		Args:  cobra.ExactArgs(1),
+		RunE:  a.imagesCommentsLSRun,
+	}
+}
+
+func (a *App) imagesCommentsLSRun(cmd *cobra.Command, args []string) error {
+	uuids, err := parseUUIDs(args)
+	if err != nil {
+		return err
+	}
+	c, _, err := a.requireClient(cmd)
+	if err != nil {
+		return err
+	}
+	col, err := c.ListImageComments(cmd.Context(), uuids[0])
+	if err != nil {
+		return err
+	}
+	if col.TotalCount > int64(countVisibleComments(col.Comments)) {
+		fmt.Fprintln(a.Stderr, "older comments omitted")
+	}
+	if a.flagJSON {
+		return json.NewEncoder(a.Stdout).Encode(col)
+	}
+	for _, comment := range col.Comments {
+		writeComment(a.Stdout, comment, "")
+	}
+	fmt.Fprintf(a.Stdout, "Total: %d\n", col.TotalCount)
+	return nil
+}
+
+func countVisibleComments(comments []client.ImageComment) int {
+	n := 0
+	for _, comment := range comments {
+		if !comment.Deleted {
+			n++
+		}
+		n += countVisibleComments(comment.Replies)
+	}
+	return n
+}
+
+func writeComment(w io.Writer, comment client.ImageComment, indent string) {
+	content := comment.Content
+	if comment.Deleted {
+		content = "(deleted)"
+	}
+	fmt.Fprintf(w, "%s#%d %s\n%s%s\n", indent, comment.ID, comment.Username, indent, content)
+	for _, reply := range comment.Replies {
+		writeComment(w, reply, indent+"  ")
+	}
+}
+
+func (a *App) imagesCommentsAddCommand() *cobra.Command {
+	cmd := &cobra.Command{
+		Use:   "add <uuid>",
+		Short: "Comment on an image",
+		Args:  cobra.ExactArgs(1),
+		RunE:  a.imagesCommentsAddRun,
+	}
+	cmd.Flags().String("content", "", "comment text, at most 2000 characters")
+	cmd.Flags().Int64("reply-to", 0, "top-level comment id to reply to")
+	return cmd
+}
+
+func (a *App) imagesCommentsAddRun(cmd *cobra.Command, args []string) error {
+	uuids, err := parseUUIDs(args)
+	if err != nil {
+		return err
+	}
+	if !cmd.Flags().Changed("content") {
+		return fmt.Errorf("%w: --content is required", ErrUsage)
+	}
+	content, err := cmd.Flags().GetString("content")
+	if err != nil {
+		return err
+	}
+	content = strings.TrimSpace(content)
+	if content == "" {
+		return fmt.Errorf("%w: --content cannot be empty", ErrUsage)
+	}
+	if utf8.RuneCountInString(content) > 2000 {
+		return fmt.Errorf("%w: --content must be at most 2000 characters", ErrUsage)
+	}
+	var parentID *int64
+	if cmd.Flags().Changed("reply-to") {
+		parent, err := cmd.Flags().GetInt64("reply-to")
+		if err != nil {
+			return err
+		}
+		if parent < 1 {
+			return fmt.Errorf("%w: --reply-to must be a positive integer", ErrUsage)
+		}
+		parentID = &parent
+	}
+	c, _, err := a.requireClient(cmd)
+	if err != nil {
+		return err
+	}
+	comment, err := c.CreateImageComment(cmd.Context(), uuids[0], client.ImageCommentCreate{Content: content, ParentID: parentID})
+	if err != nil {
+		return err
+	}
+	if a.flagJSON {
+		return json.NewEncoder(a.Stdout).Encode(comment)
+	}
+	writeComment(a.Stdout, *comment, "")
+	return nil
+}
+
+func (a *App) imagesCommentsDeleteCommand() *cobra.Command {
+	cmd := &cobra.Command{
+		Use:   "delete <id...>",
+		Short: "Delete comments",
+		Args:  cobra.MinimumNArgs(1),
+		RunE:  a.imagesCommentsDeleteRun,
+	}
+	cmd.Flags().Bool("yes", false, "do not prompt for confirmation")
+	return cmd
+}
+
+type commentDeleteResult struct {
+	ID     int64  `json:"id"`
+	Status string `json:"status,omitempty"`
+	Error  string `json:"error,omitempty"`
+}
+
+func (a *App) imagesCommentsDeleteRun(cmd *cobra.Command, args []string) error {
+	ids := make([]int64, len(args))
+	for i, raw := range args {
+		id, err := parsePositiveID(raw, "comment id")
+		if err != nil {
+			return err
+		}
+		ids[i] = id
+	}
+	ok, err := a.confirmDestructive(cmd, fmt.Sprintf("Delete %d comment(s)?", len(ids)), "use --yes to delete")
+	if err != nil || !ok {
+		return err
+	}
+	c, _, err := a.requireClient(cmd)
+	if err != nil {
+		return err
+	}
+	results := make([]commentDeleteResult, 0, len(ids))
+	failed := 0
+	for _, id := range ids {
+		if err := c.DeleteComment(cmd.Context(), id); err != nil {
+			failed++
+			results = append(results, commentDeleteResult{ID: id, Error: err.Error()})
+			if !a.flagJSON {
+				fmt.Fprintf(a.Stderr, "%d: %s\n", id, err.Error())
+			}
+			continue
+		}
+		results = append(results, commentDeleteResult{ID: id, Status: "deleted"})
+		if !a.flagJSON {
+			fmt.Fprintf(a.Stdout, "%d: deleted\n", id)
+		}
+	}
+	if a.flagJSON {
+		if err := json.NewEncoder(a.Stdout).Encode(results); err != nil {
+			return err
+		}
+	}
+	if failed > 0 {
+		return fmt.Errorf("%d comment(s) failed to delete", failed)
 	}
 	return nil
 }

@@ -1,7 +1,6 @@
 package cli
 
 import (
-	"fmt"
 	"strings"
 
 	"github.com/ManuelReschke/fotoly-cli/internal/brand"
@@ -10,7 +9,7 @@ import (
 
 type Prompter interface {
 	PromptSetup(br brand.Brand, defaultURL string) (apiKey, baseURL string, err error)
-	ConfirmDelete(n int) (bool, error)
+	Confirm(prompt string) (bool, error)
 }
 
 type HuhPrompter struct{}
@@ -29,10 +28,9 @@ func (HuhPrompter) PromptSetup(br brand.Brand, defaultURL string) (string, strin
 	return strings.TrimSpace(key), strings.TrimSpace(base), nil
 }
 
-func (HuhPrompter) ConfirmDelete(n int) (bool, error) {
+func (HuhPrompter) Confirm(prompt string) (bool, error) {
 	ok := false
-	title := fmt.Sprintf("Delete %d image(s)?", n)
-	form := huh.NewForm(huh.NewGroup(huh.NewConfirm().Title(title).Affirmative("Yes").Negative("No").Value(&ok)))
+	form := huh.NewForm(huh.NewGroup(huh.NewConfirm().Title(prompt).Affirmative("Yes").Negative("No").Value(&ok)))
 	if err := form.Run(); err != nil {
 		return false, err
 	}

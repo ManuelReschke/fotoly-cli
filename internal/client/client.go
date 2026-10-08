@@ -114,6 +114,176 @@ func (c *Client) DeleteImage(ctx context.Context, uuid string) (*ImageDeletionAc
 	return &acc, nil
 }
 
+func (c *Client) CreateAlbum(ctx context.Context, req AlbumCreate) (*AlbumSummary, error) {
+	var album AlbumSummary
+	if err := c.doJSONBody(ctx, http.MethodPost, "/albums", req, &album); err != nil {
+		return nil, err
+	}
+	return &album, nil
+}
+
+func (c *Client) UpdateAlbum(ctx context.Context, id int64, req AlbumUpdate) (*AlbumSummary, error) {
+	var album AlbumSummary
+	if err := c.doJSONBody(ctx, http.MethodPatch, albumPath(id, ""), req, &album); err != nil {
+		return nil, err
+	}
+	return &album, nil
+}
+
+func (c *Client) DeleteAlbum(ctx context.Context, id int64) error {
+	return c.doJSON(ctx, http.MethodDelete, albumPath(id, ""), nil)
+}
+
+func (c *Client) ListAlbumImages(ctx context.Context, id int64) (*AlbumImageCollection, error) {
+	var col AlbumImageCollection
+	if err := c.doJSON(ctx, http.MethodGet, albumPath(id, "/images"), &col); err != nil {
+		return nil, err
+	}
+	return &col, nil
+}
+
+func (c *Client) AddAlbumImages(ctx context.Context, id int64, uuids []string) (*AlbumAddImagesResult, error) {
+	var res AlbumAddImagesResult
+	body := struct {
+		ImageUUIDs []string `json:"image_uuids"`
+	}{ImageUUIDs: uuids}
+	if err := c.doJSONBody(ctx, http.MethodPost, albumPath(id, "/images"), body, &res); err != nil {
+		return nil, err
+	}
+	return &res, nil
+}
+
+func (c *Client) RemoveAlbumImage(ctx context.Context, id int64, uuid string) error {
+	return c.doJSON(ctx, http.MethodDelete, albumPath(id, "/images/"+url.PathEscape(uuid)), nil)
+}
+
+func (c *Client) SetAlbumCover(ctx context.Context, id int64, imageUUID string) (*AlbumSummary, error) {
+	var album AlbumSummary
+	body := struct {
+		ImageUUID string `json:"image_uuid"`
+	}{ImageUUID: imageUUID}
+	if err := c.doJSONBody(ctx, http.MethodPut, albumPath(id, "/cover"), body, &album); err != nil {
+		return nil, err
+	}
+	return &album, nil
+}
+
+func (c *Client) ListAlbumMembers(ctx context.Context, id int64) (*AlbumMemberCollection, error) {
+	var col AlbumMemberCollection
+	if err := c.doJSON(ctx, http.MethodGet, albumPath(id, "/members"), &col); err != nil {
+		return nil, err
+	}
+	return &col, nil
+}
+
+func (c *Client) InviteAlbumMember(ctx context.Context, id int64, req AlbumMemberInvite) (*AlbumMemberResult, error) {
+	var res AlbumMemberResult
+	if err := c.doJSONBody(ctx, http.MethodPost, albumPath(id, "/members"), req, &res); err != nil {
+		return nil, err
+	}
+	return &res, nil
+}
+
+func (c *Client) RemoveAlbumMember(ctx context.Context, id int64, userID int64) error {
+	return c.doJSON(ctx, http.MethodDelete, albumPath(id, "/members/"+strconv.FormatInt(userID, 10)), nil)
+}
+
+func (c *Client) ListAlbumCategories(ctx context.Context) (*AlbumCategoryCollection, error) {
+	var col AlbumCategoryCollection
+	if err := c.doJSON(ctx, http.MethodGet, "/album-categories", &col); err != nil {
+		return nil, err
+	}
+	return &col, nil
+}
+
+func (c *Client) CreateAlbumCategory(ctx context.Context, name string) (*AlbumCategory, error) {
+	var cat AlbumCategory
+	body := struct {
+		Name string `json:"name"`
+	}{Name: name}
+	if err := c.doJSONBody(ctx, http.MethodPost, "/album-categories", body, &cat); err != nil {
+		return nil, err
+	}
+	return &cat, nil
+}
+
+func (c *Client) SetAlbumCategories(ctx context.Context, id int64, privateIDs, publicIDs []int64) (*AlbumCategoryCollection, error) {
+	if privateIDs == nil {
+		privateIDs = []int64{}
+	}
+	if publicIDs == nil {
+		publicIDs = []int64{}
+	}
+	var col AlbumCategoryCollection
+	body := struct {
+		PrivateCategoryIDs []int64 `json:"private_category_ids"`
+		PublicCategoryIDs  []int64 `json:"public_category_ids"`
+	}{PrivateCategoryIDs: privateIDs, PublicCategoryIDs: publicIDs}
+	if err := c.doJSONBody(ctx, http.MethodPut, albumPath(id, "/categories"), body, &col); err != nil {
+		return nil, err
+	}
+	return &col, nil
+}
+
+func (c *Client) LikeImage(ctx context.Context, uuid string) (*ImageLikeState, error) {
+	var st ImageLikeState
+	if err := c.doJSON(ctx, http.MethodPut, "/images/"+url.PathEscape(uuid)+"/like", &st); err != nil {
+		return nil, err
+	}
+	return &st, nil
+}
+
+func (c *Client) UnlikeImage(ctx context.Context, uuid string) (*ImageLikeState, error) {
+	var st ImageLikeState
+	if err := c.doJSON(ctx, http.MethodDelete, "/images/"+url.PathEscape(uuid)+"/like", &st); err != nil {
+		return nil, err
+	}
+	return &st, nil
+}
+
+func (c *Client) ListNotifications(ctx context.Context, q NotificationQuery) (*NotificationCollection, error) {
+	v := url.Values{}
+	if q.Limit != nil {
+		v.Set("limit", strconv.Itoa(*q.Limit))
+	}
+	if q.Cursor != "" {
+		v.Set("cursor", q.Cursor)
+	}
+	path := "/notifications"
+	if encoded := v.Encode(); encoded != "" {
+		path += "?" + encoded
+	}
+	var col NotificationCollection
+	if err := c.doJSON(ctx, http.MethodGet, path, &col); err != nil {
+		return nil, err
+	}
+	return &col, nil
+}
+
+func (c *Client) ListImageComments(ctx context.Context, uuid string) (*ImageCommentCollection, error) {
+	var col ImageCommentCollection
+	if err := c.doJSON(ctx, http.MethodGet, "/images/"+url.PathEscape(uuid)+"/comments", &col); err != nil {
+		return nil, err
+	}
+	return &col, nil
+}
+
+func (c *Client) CreateImageComment(ctx context.Context, uuid string, req ImageCommentCreate) (*ImageComment, error) {
+	var comment ImageComment
+	if err := c.doJSONBody(ctx, http.MethodPost, "/images/"+url.PathEscape(uuid)+"/comments", req, &comment); err != nil {
+		return nil, err
+	}
+	return &comment, nil
+}
+
+func (c *Client) DeleteComment(ctx context.Context, id int64) error {
+	return c.doJSON(ctx, http.MethodDelete, "/comments/"+strconv.FormatInt(id, 10), nil)
+}
+
+func albumPath(id int64, rest string) string {
+	return "/albums/" + strconv.FormatInt(id, 10) + rest
+}
+
 func (c *Client) CreateUploadSession(ctx context.Context, req UploadSessionRequest) (*UploadSessionResponse, error) {
 	var sess UploadSessionResponse
 	if err := c.doJSONBody(ctx, http.MethodPost, "/upload/sessions", req, &sess); err != nil {
@@ -239,6 +409,10 @@ func (c *Client) doJSONBody(ctx context.Context, method, path string, body, dest
 
 		if resp.StatusCode >= 200 && resp.StatusCode < 300 {
 			defer resp.Body.Close()
+			if dest == nil || resp.StatusCode == http.StatusNoContent {
+				_, _ = io.Copy(io.Discard, resp.Body)
+				return nil
+			}
 			return json.NewDecoder(resp.Body).Decode(dest)
 		}
 
@@ -295,13 +469,15 @@ func retryAfterDelay(h string) time.Duration {
 
 func decodeAPIError(resp *http.Response) error {
 	var body struct {
-		Error   string `json:"error"`
-		Message string `json:"message"`
+		Error      string                 `json:"error"`
+		Message    string                 `json:"message"`
+		Candidates []AlbumMemberCandidate `json:"candidates"`
 	}
 	_ = json.NewDecoder(resp.Body).Decode(&body)
 	return &APIError{
-		Status:  resp.StatusCode,
-		Code:    body.Error,
-		Message: body.Message,
+		Status:     resp.StatusCode,
+		Code:       body.Error,
+		Message:    body.Message,
+		Candidates: body.Candidates,
 	}
 }

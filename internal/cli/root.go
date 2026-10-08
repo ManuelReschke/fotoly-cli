@@ -92,6 +92,7 @@ func (a *App) buildRoot() *cobra.Command {
 	cmd.AddCommand(a.uploadCommand())
 	cmd.AddCommand(a.imagesCommand())
 	cmd.AddCommand(a.albumsCommand())
+	cmd.AddCommand(a.notificationsCommand())
 	return cmd
 }
 

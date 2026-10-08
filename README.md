@@ -4,7 +4,7 @@
 
 Official command-line tools for [fotoly.eu](https://fotoly.eu) and [pixelfox.cc](https://pixelfox.cc). One Go module ships two binaries — `fotoly` and `pixelfox` — with separate configs, hosts, and environment prefixes.
 
-Use them to set up an API key, check your account, upload images, list, inspect, edit, or delete images, and list albums.
+Use them to set up an API key, check your account, upload images, list, inspect, edit, or delete images, manage albums, and read notifications.
 
 ## Install
 
@@ -149,14 +149,61 @@ fotoly images delete <uuid…> --yes
 
 `images edit` sends only the flags you set. `--title` and `--description` accept an empty string. `--public` / `--private` and `--nsfw` / `--sfw` are mutually exclusive pairs. Repeat `--tag` to replace the whole tag list. `--clear-tags` removes every tag and cannot be combined with `--tag`. At least one of these flags is required.
 
+```bash
+fotoly images like <uuid>
+fotoly images unlike <uuid>
+fotoly images comments ls <uuid>
+fotoly images comments add <uuid> --content "Nice light" --reply-to 12
+fotoly images comments delete <id…> --yes
+```
+
+`images like` and `images unlike` apply only to an image you own or that is public. `images comments ls` shows the newest 30 top-level comments and their replies. Older comments are omitted; the total still counts every comment that is not deleted. `images comments add` trims `--content` and rejects text longer than 2000 characters. `--reply-to` replies to a top-level comment on that image. `images comments delete` removes your own comment. Deleting an album, a comment, or an image needs `--yes` when there is no terminal prompt.
+
 ### Albums
 
 ```bash
 fotoly albums ls
-fotoly albums ls --json
+fotoly albums create --title "Holiday" --public --password secret --sort asc
+fotoly albums edit 12 --title "Summer" --password ""
+fotoly albums delete 12 --yes
+fotoly albums images ls 12
+fotoly albums images add 12 <uuid…>
+fotoly albums images delete 12 <uuid…> --yes
+fotoly albums cover 12 --image <uuid>
+fotoly albums cover 12 --clear
+fotoly albums members ls 12
+fotoly albums members add 12 --username ada
+fotoly albums members add 12 --user-id 3
+fotoly albums members delete 12 3 --yes
+fotoly albums categories ls
+fotoly albums categories create --name travel
+fotoly albums categories set 12 --private 4 --public ""
 ```
 
-Lists album id, title, image count, visibility, and share URL (useful as `--album` for upload). Album create/update/delete is not supported in v1.
+`albums ls` prints id, title, image count, visibility, and share URL (useful as `--album` for upload).
+
+`albums create` requires `--title`. `--public` / `--private` and `--nsfw` / `--sfw` are mutually exclusive. Omitted visibility stays private. `--sort` is `desc` (newest first) or `asc`. `--password` sets the share password. The password itself is never returned.
+
+`albums edit` sends only the flags you set. An empty `--password` clears the share password. An empty `--description` clears the description. At least one flag is required.
+
+`albums delete` removes the album and its assignments. The images stay in the library.
+
+`albums images add` assigns images you already own. `albums images delete` removes that assignment and, when that image is the cover, clears the cover. The image stays in the library.
+
+`albums cover` sets the cover to an image that is already in the album, or clears it with `--clear`.
+
+`albums members add` takes exactly one of `--user-id` or `--username`. A username that matches more than one account fails and lists the candidate ids; invite again with `--user-id`. `albums members delete` needs `--yes` off a terminal.
+
+`albums categories set` replaces both lists. Pass `--private` and `--public` every time. An empty value clears that side. Ids are comma-separated. `albums categories create` makes a private category.
+
+### Notifications
+
+```bash
+fotoly notifications ls
+fotoly notifications ls --limit 30 --cursor <cursor>
+```
+
+Prints the unread count and the newest page. `--limit` must be from 1 to 100 (default 30). When more remain, the next cursor is written to stderr.
 
 ## Agent skill
 
@@ -164,7 +211,7 @@ Assistants that read [Agent Skills](https://agentskills.io) can drive this CLI f
 
 [`.agents/skills/fotoly-cli/SKILL.md`](.agents/skills/fotoly-cli/SKILL.md)
 
-Grok, OpenCode, and Codex load that path when the working directory is this repository. The same file covers both binaries. It tells the assistant to pick `fotoly` or `pixelfox` for the brand you named, pass `--json`, and stay inside the commands above: setup, whoami, upload, image list/get/status/edit/delete, and album list. Album create/update/delete and moving an existing image onto an album are outside the CLI, so the skill stops there.
+Grok, OpenCode, and Codex load that path when the working directory is this repository. The same file covers both binaries. It tells the assistant to pick `fotoly` or `pixelfox` for the brand you named, pass `--json`, and stay inside the commands above.
 
 To use the skill from another project, copy the folder to `~/.agents/skills/fotoly-cli/`.
 

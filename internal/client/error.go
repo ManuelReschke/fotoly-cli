@@ -3,25 +3,37 @@ package client
 import (
 	"errors"
 	"fmt"
+	"strings"
 )
 
 type APIError struct {
-	Status  int
-	Code    string
-	Message string
+	Status     int
+	Code       string
+	Message    string
+	Candidates []AlbumMemberCandidate
 }
 
 func (e *APIError) Error() string {
 	if e == nil {
 		return "http 0"
 	}
-	if e.Message != "" {
-		return e.Message
+	var msg string
+	switch {
+	case e.Message != "":
+		msg = e.Message
+	case e.Code != "":
+		msg = e.Code
+	default:
+		msg = fmt.Sprintf("http %d", e.Status)
 	}
-	if e.Code != "" {
-		return e.Code
+	if len(e.Candidates) == 0 {
+		return msg
 	}
-	return fmt.Sprintf("http %d", e.Status)
+	parts := make([]string, len(e.Candidates))
+	for i, c := range e.Candidates {
+		parts[i] = fmt.Sprintf("%s (%d)", c.Username, c.UserID)
+	}
+	return msg + ": " + strings.Join(parts, ", ")
 }
 
 func IsUnauthorized(err error) bool {
