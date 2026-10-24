@@ -4,7 +4,7 @@
 
 Official command-line tools for [fotoly.eu](https://fotoly.eu) and [pixelfox.cc](https://pixelfox.cc). One Go module ships two binaries — `fotoly` and `pixelfox` — with separate configs, hosts, and environment prefixes.
 
-Use them to set up an API key, check your account, upload images, list, inspect, edit, or delete images, manage albums, and read notifications.
+Use them to set up an API key, check your account, export original images, upload images, list, inspect, edit, or delete images, manage albums, and read notifications.
 
 ## Install
 
@@ -116,6 +116,16 @@ fotoly whoami          # alias: me
 fotoly whoami --json
 fotoly version
 ```
+
+### Export
+
+```bash
+fotoly export
+fotoly export --dir ./backup
+fotoly export --json
+```
+
+Downloads original images one file at a time. `--dir` is the output directory (default `./fotoly-export`, or `./pixelfox-export` for that binary). The command requests an export and waits until it is ready, then writes `account.json` and each original under `files/`. A file already stored there is skipped when its size matches and, if the export includes a SHA-256, the hash matches too. The CLI does not download a zip. `--json` prints only `{"dir","files","skipped","status"}` and no progress lines.
 
 ### Upload
 

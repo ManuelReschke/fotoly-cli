@@ -1,6 +1,6 @@
 ---
 name: fotoly-cli
-description: Use when uploading, listing, editing, or deleting images, checking processing status, listing albums, or checking the account on Fotoly or PixelFox with the fotoly or pixelfox CLI. Triggers include fotoly, pixelfox, fotoly-cli, fotoly.eu, pixelfox.cc, API key, Bild hochladen, Alben auflisten, and /fotoly-cli.
+description: Use when uploading, listing, editing, deleting, or exporting images, checking processing status, listing albums, or checking the account on Fotoly or PixelFox with the fotoly or pixelfox CLI. Triggers include fotoly, pixelfox, fotoly-cli, fotoly.eu, pixelfox.cc, API key, Bild hochladen, Datenexport, Alben auflisten, and /fotoly-cli.
 user-invocable: true
 ---
 
@@ -35,7 +35,7 @@ The installer puts `fotoly` and `pixelfox` in `~/.local/bin`. If that directory 
 
 ## Every call
 
-Add `--json` to account, album, image, and notification commands.
+Add `--json` to account, album, image, export, and notification commands.
 
 - stdout is one JSON value, the result
 - stderr is progress, warnings, and on failure `{"error","message"}`
@@ -58,6 +58,8 @@ When the message is `Invalid API key. Run '<binary> setup'.`, stop and ask for a
 ## Commands
 
 `whoami` (alias `me`) returns `username`, `email`, `plan`, `stats.images.count`, `stats.images.storage_used_bytes`, `stats.albums.count`, and `limits.max_upload_bytes`.
+
+`export` downloads the account snapshot and every original. Optional `--dir` (default `./fotoly-export` or `./pixelfox-export`). It waits until the export is ready, then writes `<dir>/account.json` and originals under `<dir>/files/`. A file already there is skipped when the size matches and, if a SHA-256 is present, the hash matches. It does not download a zip. `--json` prints one object `{"dir","files","skipped","status"}` and no progress lines. `files` is the image count. Libraries over 2 GB have no zip on the website; this command is how those originals are fetched. Accounts at or under 2 GB can still use it.
 
 `upload <files...>` (alias `up`). Always pass `--no-copy`. Optional flags: `--album <id>` from `albums ls`, `--nsfw`, `--processing default|original_only`, `--no-wait`. stdout is an array of `{file, ok, image_uuid, url, duplicate, error}`. `url` is absolute when `ok` is true. The command waits until processing finishes. `--no-wait` returns before that; use `images status` until `complete` is true, then `images get`. Exit `1` if any file failed; still read the stdout array. This stderr line means the image was stored but not added to the album: `album <id> was not bound; uploading without album`.
 

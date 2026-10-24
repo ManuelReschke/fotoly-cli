@@ -340,3 +340,28 @@ type StorageUploadResponse struct {
 	URL       *string `json:"url"`
 	Duplicate *bool   `json:"duplicate"`
 }
+
+// ExportStatus is the POST and GET /user/export document.
+// Status is pending, processing, ready, or failed. Created is only set on POST.
+type ExportStatus struct {
+	ID      int64  `json:"id"`
+	Status  string `json:"status"`
+	Error   string `json:"error"`
+	Created bool   `json:"created"`
+}
+
+// ExportAccount is the ready account document from GET /user/export/account.
+// Unknown fields are ignored. Images may be missing.
+type ExportAccount struct {
+	ExportedAt string        `json:"exported_at"`
+	Images     []ExportImage `json:"images"`
+}
+
+// ExportImage is one original in an account export.
+type ExportImage struct {
+	UUID         string `json:"uuid"`
+	FileName     string `json:"file_name"`
+	FileSize     int64  `json:"file_size"`
+	SHA256       string `json:"sha256"`
+	DownloadPath string `json:"download_path"`
+}
