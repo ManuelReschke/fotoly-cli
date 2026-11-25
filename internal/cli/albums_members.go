@@ -66,6 +66,8 @@ func (a *App) albumsMembersAddCommand() *cobra.Command {
 	}
 	cmd.Flags().Int64("user-id", 0, "user id to invite")
 	cmd.Flags().String("username", "", "username to invite")
+	cmd.Flags().String("email", "", "email address to invite")
+	cmd.Flags().String("role", "", "viewer or contributor (default viewer)")
 	return cmd
 }
 
@@ -74,13 +76,25 @@ func (a *App) albumsMembersAddRun(cmd *cobra.Command, args []string) error {
 	if err != nil {
 		return err
 	}
-	userChanged := cmd.Flags().Changed("user-id")
-	nameChanged := cmd.Flags().Changed("username")
-	if userChanged == nameChanged {
-		return fmt.Errorf("%w: set exactly one of --user-id or --username", ErrUsage)
+	var identifiers []string
+	for _, name := range []string{"user-id", "username", "email"} {
+		if cmd.Flags().Changed(name) {
+			identifiers = append(identifiers, name)
+		}
 	}
-	var req client.AlbumMemberInvite
-	if userChanged {
+	if len(identifiers) != 1 {
+		return fmt.Errorf("%w: set exactly one of --user-id, --username, or --email", ErrUsage)
+	}
+	role, err := cmd.Flags().GetString("role")
+	if err != nil {
+		return err
+	}
+	if cmd.Flags().Changed("role") && role != "viewer" && role != "contributor" {
+		return fmt.Errorf("%w: --role must be viewer or contributor", ErrUsage)
+	}
+	req := client.AlbumMemberInvite{Role: role}
+	name := identifiers[0]
+	if name == "user-id" {
 		userID, err := cmd.Flags().GetInt64("user-id")
 		if err != nil {
 			return err
@@ -90,15 +104,19 @@ func (a *App) albumsMembersAddRun(cmd *cobra.Command, args []string) error {
 		}
 		req.UserID = &userID
 	} else {
-		name, err := cmd.Flags().GetString("username")
+		value, err := cmd.Flags().GetString(name)
 		if err != nil {
 			return err
 		}
-		name = strings.TrimSpace(name)
-		if name == "" {
-			return fmt.Errorf("%w: --username cannot be empty", ErrUsage)
+		value = strings.TrimSpace(value)
+		if value == "" {
+			return fmt.Errorf("%w: --%s cannot be empty", ErrUsage, name)
 		}
-		req.Username = &name
+		if name == "email" {
+			req.Email = &value
+		} else {
+			req.Username = &value
+		}
 	}
 	c, _, err := a.requireClient(cmd)
 	if err != nil {

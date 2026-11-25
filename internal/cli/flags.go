@@ -16,12 +16,13 @@ func addAlbumMetaFlags(cmd *cobra.Command) {
 	cmd.Flags().Bool("private", false, "make the album private")
 	cmd.Flags().Bool("nsfw", false, "mark the album NSFW")
 	cmd.Flags().Bool("sfw", false, "mark the album SFW")
+	cmd.Flags().Bool("ai-generated", false, "set the AI-generated flag (true or false)")
 	cmd.Flags().String("password", "", "share password; an empty value clears it on edit")
 	cmd.Flags().String("sort", "", "image order inside the album: desc or asc")
 }
 
 func albumMetaChanged(cmd *cobra.Command) bool {
-	for _, name := range []string{"title", "description", "public", "private", "nsfw", "sfw", "password", "sort"} {
+	for _, name := range []string{"title", "description", "public", "private", "nsfw", "sfw", "ai-generated", "password", "sort"} {
 		if cmd.Flags().Changed(name) {
 			return true
 		}
@@ -34,6 +35,17 @@ func changedString(cmd *cobra.Command, name string) (*string, error) {
 		return nil, nil
 	}
 	value, err := cmd.Flags().GetString(name)
+	if err != nil {
+		return nil, err
+	}
+	return &value, nil
+}
+
+func changedBool(cmd *cobra.Command, name string) (*bool, error) {
+	if !cmd.Flags().Changed(name) {
+		return nil, nil
+	}
+	value, err := cmd.Flags().GetBool(name)
 	if err != nil {
 		return nil, err
 	}

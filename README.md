@@ -90,6 +90,7 @@ Resolution order for API key and config path: **flag > env > file**. Default bas
 | Fotoly              | PixelFox               | Purpose              |
 |---------------------|------------------------|----------------------|
 | `FOTOLY_API_KEY`    | `PIXELFOX_API_KEY`     | API key              |
+| `FOTOLY_SESSION_TOKEN` | `PIXELFOX_SESSION_TOKEN` | App session token |
 | `FOTOLY_BASE_URL`   | `PIXELFOX_BASE_URL`    | API base URL         |
 | `FOTOLY_CONFIG`     | `PIXELFOX_CONFIG`      | Config file path     |
 
@@ -115,7 +116,28 @@ Examples use `fotoly`; `pixelfox` is the same with its own config.
 fotoly whoami          # alias: me
 fotoly whoami --json
 fotoly version
+fotoly ping --json     # public API health check
 ```
+
+### App sessions and social login
+
+```bash
+fotoly auth register --username ada --email ada@example.com
+fotoly auth login --email ada@example.com
+fotoly auth providers
+fotoly auth start google
+fotoly auth token
+fotoly auth web-handoff --next /pricing
+fotoly auth logout
+```
+
+Registration sends a website activation link by email. Login reads the password from a hidden terminal prompt or reads one line from standard input with `--password-stdin`. Registration accepts the same input options.
+
+`auth start` prints the browser URL. The OAuth server redirects to the registered app callback (`fotoly://auth/callback` or `pixelfox://auth/callback`). Provide the one-time code from that callback to `auth token`, either at the hidden terminal prompt or on standard input with `--code-stdin`.
+
+`auth login` and `auth token` print the app session token. With `--json`, they return the token, expiry, and account details. To use it, set `FOTOLY_SESSION_TOKEN` (or `PIXELFOX_SESSION_TOKEN` for PixelFox) in the environment. An explicit `--api-key` takes precedence on ordinary API calls, followed by the session token, the environment API key, and the stored key. `auth logout` revokes the token from the session environment variable.
+
+`auth web-handoff` prints a single-use website login link and accepts an API key or app session. The default destination is `/pricing`. Treat app session tokens and website handoff links as credentials.
 
 ### Export
 
@@ -133,12 +155,20 @@ Downloads original images one file at a time. `--dir` is the output directory (d
 fotoly upload photo.jpg
 fotoly up photo1.png photo2.png --album 12
 fotoly upload shot.jpg --processing original_only --no-wait
+fotoly upload shot.jpg --ai-generated --tag art --processing custom --derivative webp/small --derivative avif/medium
 fotoly upload shot.jpg --copy      # force clipboard
 fotoly upload shot.jpg --no-copy   # never copy
 fotoly upload shot.jpg --json
 ```
 
-Flags: `--album`, `--nsfw`, `--processing` (`default` or `original_only`), `--no-wait`, `--copy`, `--no-copy`.
+Omit `--nsfw` and `--ai-generated` to use the account defaults, or set either explicitly to `false`. Repeat `--tag` for each upload tag. The `custom` processing profile accepts repeatable `--derivative family/size` values. Families are `original`, `webp`, and `avif`. Sizes are `original`, `medium`, and `small`. The original upload is always retained. Use `--upload-token-form` to send the storage token in the multipart form. Other optional flags include `--album`, `--no-wait`, `--copy`, and `--no-copy`.
+
+```bash
+fotoly upload-check
+fotoly upload-check --origin https://fotoly.eu --json
+```
+
+`upload-check` uses `HEAD` to check upload reachability. Passing `--origin` sends a CORS `OPTIONS` preflight and shows the response headers. Use `--url` to check a specific storage upload URL.
 
 ### Images
 
@@ -146,6 +176,7 @@ Flags: `--album`, `--nsfw`, `--processing` (`default` or `original_only`), `--no
 fotoly images ls
 fotoly images ls --limit 50 --album 12 --public
 fotoly images ls --tag holiday --json
+fotoly images ls --sort asc --ai-generated=false
 fotoly images get <uuid>
 fotoly images status <uuid>
 fotoly images edit <uuid> --title "Cat" --private --tag holiday --tag beach
@@ -153,11 +184,11 @@ fotoly images edit <uuid> --clear-tags
 fotoly images delete <uuid…> --yes
 ```
 
-`images ls` filters: `--limit`, `--cursor`, `--album`, `--public` / `--private` (mutually exclusive), `--nsfw` / `--sfw` (mutually exclusive), `--tag`.
+`images ls` accepts `--limit`, `--cursor`, `--sort desc|asc`, `--album`, `--public` / `--private` (mutually exclusive), `--nsfw` / `--sfw` (mutually exclusive), `--ai-generated[=false]`, and `--tag`. Use the same sort order when passing the next cursor.
 
 `images status` prints whether processing is complete or failed, and the share URL once it exists. Use it after `upload --no-wait`.
 
-`images edit` sends only the flags you set. `--title` and `--description` accept an empty string. `--public` / `--private` and `--nsfw` / `--sfw` are mutually exclusive pairs. Repeat `--tag` to replace the whole tag list. `--clear-tags` removes every tag and cannot be combined with `--tag`. At least one of these flags is required.
+`images edit` sends only the flags you set. `--title` and `--description` accept an empty string. `--public` / `--private` and `--nsfw` / `--sfw` are mutually exclusive pairs. Set or clear the AI flag with `--ai-generated` or `--ai-generated=false`. Repeat `--tag` to replace the whole tag list. `--clear-tags` removes every tag and cannot be combined with `--tag`. At least one of these flags is required.
 
 ```bash
 fotoly images like <uuid>
@@ -184,6 +215,7 @@ fotoly albums cover 12 --clear
 fotoly albums members ls 12
 fotoly albums members add 12 --username ada
 fotoly albums members add 12 --user-id 3
+fotoly albums members add 12 --email ada@example.com --role contributor
 fotoly albums members delete 12 3 --yes
 fotoly albums categories ls
 fotoly albums categories create --name travel
@@ -192,7 +224,7 @@ fotoly albums categories set 12 --private 4 --public ""
 
 `albums ls` prints id, title, image count, visibility, and share URL (useful as `--album` for upload).
 
-`albums create` requires `--title`. `--public` / `--private` and `--nsfw` / `--sfw` are mutually exclusive. Omitted visibility stays private. `--sort` is `desc` (newest first) or `asc`. `--password` sets the share password. The password itself is never returned.
+`albums create` requires `--title`. `--public` / `--private` and `--nsfw` / `--sfw` are mutually exclusive. Omitted visibility stays private. `--sort` is `desc` (newest first) or `asc`. Use `--ai-generated` or `--ai-generated=false` when creating or editing an album. `--password` sets the share password. The password itself is never returned.
 
 `albums edit` sends only the flags you set. An empty `--password` clears the share password. An empty `--description` clears the description. At least one flag is required.
 
@@ -202,9 +234,9 @@ fotoly albums categories set 12 --private 4 --public ""
 
 `albums cover` sets the cover to an image that is already in the album, or clears it with `--clear`.
 
-`albums members add` takes exactly one of `--user-id` or `--username`. A username that matches more than one account fails and lists the candidate ids; invite again with `--user-id`. `albums members delete` needs `--yes` off a terminal.
+`albums members add` takes exactly one of `--user-id`, `--username`, or `--email`. The default role is `viewer`. Use `--role contributor` to let the member add and upload their own images. A username that matches more than one account fails and lists the candidate IDs. Invite again with `--user-id`. `albums members delete` needs `--yes` off a terminal.
 
-`albums categories set` replaces both lists. Pass `--private` and `--public` every time. An empty value clears that side. Ids are comma-separated. `albums categories create` makes a private category.
+`albums categories set` replaces both lists. Pass `--private` and `--public` every time. An empty value clears that side. IDs are comma-separated. `albums categories create` makes a private category and accepts `--scope private`.
 
 ### Notifications
 

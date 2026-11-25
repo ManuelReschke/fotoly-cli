@@ -64,20 +64,41 @@ func (a *App) Root() *cobra.Command {
 	return a.root
 }
 
-func (a *App) requireClient(cmd *cobra.Command) (*client.Client, config.Values, error) {
+func (a *App) loadConfig() (config.Values, error) {
 	dir, err := a.UserConfigDir()
 	if err != nil {
-		return nil, config.Values{}, err
+		return config.Values{}, err
 	}
-	src := config.Source{
+	return config.Load(a.Brand, config.Source{
 		UserConfigDir: dir,
 		LookupEnv:     a.LookupEnv,
 		FlagConfig:    a.flagConfig,
 		FlagAPIKey:    a.flagAPIKey,
+	})
+}
+
+func (a *App) apiClient(vals config.Values) *client.Client {
+	c := client.New(vals.BaseURL, vals.APIKey, a.Brand.UserAgentString(a.Version), a.HTTPClient)
+	if a.LookupEnv != nil {
+		c.SessionToken = strings.TrimSpace(a.LookupEnv(a.Brand.EnvPrefix + "_SESSION_TOKEN"))
 	}
-	vals, err := config.Load(a.Brand, src)
+	if strings.TrimSpace(a.flagAPIKey) == "" && c.SessionToken != "" {
+		c.APIKey = ""
+	}
+	if a.Sleep != nil {
+		c.Sleep = a.Sleep
+	}
+	return c
+}
+
+func (a *App) requireClient(cmd *cobra.Command) (*client.Client, config.Values, error) {
+	vals, err := a.loadConfig()
 	if err != nil {
 		return nil, config.Values{}, err
+	}
+	c := a.apiClient(vals)
+	if c.SessionToken != "" {
+		return c, vals, nil
 	}
 	if vals.APIKey == "" && a.IsTTY != nil && a.IsTTY() && a.Prompter != nil {
 		key, url, err := a.Prompter.PromptSetup(a.Brand, vals.BaseURL)
@@ -93,18 +114,15 @@ func (a *App) requireClient(cmd *cobra.Command) (*client.Client, config.Values, 
 			if err := a.runSetup(cmd.Context(), key, base); err != nil {
 				return nil, config.Values{}, err
 			}
-			vals, err = config.Load(a.Brand, src)
+			vals, err = a.loadConfig()
 			if err != nil {
 				return nil, config.Values{}, err
 			}
+			c = a.apiClient(vals)
 		}
 	}
 	if vals.APIKey == "" {
 		return nil, config.Values{}, fmt.Errorf("No API key. Run '%s setup'.", a.Brand.Binary)
-	}
-	c := client.New(vals.BaseURL, vals.APIKey, a.Brand.UserAgentString(a.Version), a.HTTPClient)
-	if a.Sleep != nil {
-		c.Sleep = a.Sleep
 	}
 	return c, vals, nil
 }

@@ -15,7 +15,7 @@ Use the official CLI. `fotoly` and `pixelfox` share one command set and never sh
 | Fotoly | `fotoly` | `https://fotoly.eu` | `~/.config/fotoly/config.toml` | `FOTOLY_` |
 | PixelFox | `pixelfox` | `https://pixelfox.cc` | `~/.config/pixelfox/config.toml` | `PIXELFOX_` |
 
-Env names are `<PREFIX>API_KEY`, `<PREFIX>BASE_URL`, and `<PREFIX>CONFIG`. A Fotoly variable does not affect `pixelfox`, and the reverse.
+Env names are `<PREFIX>API_KEY`, `<PREFIX>SESSION_TOKEN`, `<PREFIX>BASE_URL`, and `<PREFIX>CONFIG`. A Fotoly variable does not affect `pixelfox`, and the reverse.
 
 Use the binary for the brand the user named. If they name none, use the only binary that is installed or the only config file that exists. If both brands are set up, ask which brand.
 
@@ -35,7 +35,7 @@ The installer puts `fotoly` and `pixelfox` in `~/.local/bin`. If that directory 
 
 ## Every call
 
-Add `--json` to account, album, image, export, and notification commands.
+Add `--json` to account, album, image, export, upload diagnostics, and notification commands.
 
 - stdout is one JSON value, the result
 - stderr is progress, warnings, and on failure `{"error","message"}`
@@ -59,17 +59,25 @@ When the message is `Invalid API key. Run '<binary> setup'.`, stop and ask for a
 
 `whoami` (alias `me`) returns `username`, `email`, `plan`, `stats.images.count`, `stats.images.storage_used_bytes`, `stats.albums.count`, and `limits.max_upload_bytes`.
 
+`ping --json` checks the public API and returns `{"ping":"pong"}`.
+
+`auth providers` lists social login providers. `auth start <provider>` prints the browser URL for the brand's registered app callback. Pass the callback's one-time code to `auth token` with the hidden terminal prompt or `--code-stdin`.
+
+`auth register --username <name> --email <email>` sends an activation email. `auth login --email <email>` issues an app session token. Both use a hidden password prompt or `--password-stdin`. Login and token exchange print the session token. Use `<PREFIX>SESSION_TOKEN` to authenticate later commands. `auth logout` revokes that token. `auth web-handoff` prints a one-time website login link and accepts an API key or a session token. Keep passwords, codes, tokens, and handoff links out of chat output.
+
 `export` downloads the account snapshot and every original. Optional `--dir` (default `./fotoly-export` or `./pixelfox-export`). It waits until the export is ready, then writes `<dir>/account.json` and originals under `<dir>/files/`. A file already there is skipped when the size matches and, if a SHA-256 is present, the hash matches. It does not download a zip. `--json` prints one object `{"dir","files","skipped","status"}` and no progress lines. `files` is the image count. Libraries over 2 GB have no zip on the website; this command is how those originals are fetched. Accounts at or under 2 GB can still use it.
 
-`upload <files...>` (alias `up`). Always pass `--no-copy`. Optional flags: `--album <id>` from `albums ls`, `--nsfw`, `--processing default|original_only`, `--no-wait`. stdout is an array of `{file, ok, image_uuid, url, duplicate, error}`. `url` is absolute when `ok` is true. The command waits until processing finishes. `--no-wait` returns before that; use `images status` until `complete` is true, then `images get`. Exit `1` if any file failed; still read the stdout array. This stderr line means the image was stored but not added to the album: `album <id> was not bound; uploading without album`.
+`upload <files...>` (alias `up`). Always pass `--no-copy`. Optional flags include `--album <id>`, `--nsfw[=false]`, `--ai-generated[=false]`, repeatable `--tag`, `--processing default|original_only|custom`, and `--no-wait`. For `custom`, repeat `--derivative family/size`, for example `--derivative webp/small`. Use `--upload-token-form` to send the storage token in the multipart form. stdout is an array with per-file results and any metadata returned by storage. `--no-wait` returns before processing finishes. Use `images status` and then `images get`. Exit `1` if any file failed. Read the stdout array for individual results. The warning `album <id> was not bound; uploading without album` means the upload proceeds without the requested album.
 
-`images ls` filters: `--limit` (default 25, maximum 100), `--cursor`, `--album`, `--public` or `--private`, `--nsfw` or `--sfw`, `--tag`. Each pair is mutually exclusive. stdout is `{items, has_more, next_cursor}`. An item has `image_uuid`, `title`, `description`, `file_name`, `file_size`, `is_public`, `is_nsfw`, `view_url`. The list has no tags. When `has_more` is true and the user wants the rest, repeat with `--cursor` set to `next_cursor`.
+`upload-check` tests upload reachability. Add `--origin <origin>` for a CORS preflight and `--url <url>` to check a specific storage upload URL.
+
+`images ls` accepts `--limit` (default 25, maximum 100), `--cursor`, `--sort desc|asc`, `--album`, `--public` or `--private`, `--nsfw` or `--sfw`, `--ai-generated[=false]`, and `--tag`. Each pair is mutually exclusive. stdout is `{items, has_more, next_cursor}`. Items include image metadata and tags returned by the server. When `has_more` is true and the user wants the rest, repeat with `--cursor` set to `next_cursor` and the same sort order.
 
 `images get <uuid>` returns `image_uuid`, `url`, `view_url`, `is_nsfw`, `tags`, and `available_variants`.
 
 `images status <uuid>` returns `complete`, `failed`, and `view_url`. `view_url` is null until processing finishes.
 
-`images edit <uuid>` updates metadata. Send only the flags that should change: `--title`, `--description` (empty string clears), `--public` or `--private`, `--nsfw` or `--sfw`, repeatable `--tag` (replaces the whole list), or `--clear-tags`. Each pair is mutually exclusive. `--tag` with `--clear-tags` is a usage error. At least one flag is required. stdout is the updated image, including `tags`.
+`images edit <uuid>` updates metadata. Send only the flags that should change. Use `--title`, `--description` (empty string clears), `--public` or `--private`, `--nsfw` or `--sfw`, `--ai-generated[=false]`, repeatable `--tag` (replaces the whole list), or `--clear-tags`. Each pair is mutually exclusive. `--tag` with `--clear-tags` is a usage error. At least one flag is required. stdout is the updated image, including `tags`.
 
 `images delete <uuid...> --yes` runs only after the user has explicitly asked to delete those images. Without `--yes`, a non-interactive run deletes nothing and exits `1` with `use --yes to delete`. stdout is an array of `{image_uuid, status, message, error}`.
 
@@ -83,9 +91,9 @@ When the message is `Invalid API key. Run '<binary> setup'.`, stop and ask for a
 
 `albums ls` returns `{albums: [{id, title, description, is_public, is_nsfw, image_count, view_url, share_link}]}`.
 
-`albums create --title <title>` creates an album. Optional: `--description`, `--public` or `--private`, `--nsfw` or `--sfw`, `--password`, `--sort desc|asc`. Each pair is mutually exclusive. Omitted visibility stays private. stdout is the album, including `image_sort_order` and `has_share_password` when the server sends them. The password itself is never returned.
+`albums create --title <title>` creates an album. Optional flags include `--description`, `--public` or `--private`, `--nsfw` or `--sfw`, `--ai-generated[=false]`, `--password`, and `--sort desc|asc`. Each pair is mutually exclusive. Omitted visibility stays private. stdout is the album, including `image_sort_order` and `has_share_password` when the server sends them. The password itself is never returned.
 
-`albums edit <id>` updates an album. Send only the flags that should change: `--title`, `--description` (empty allowed), `--public` or `--private`, `--nsfw` or `--sfw`, `--password` (empty clears it), `--sort desc|asc`. At least one flag is required. `--title` cannot be empty.
+`albums edit <id>` updates an album. It takes the same flags as create. Pass only the flags that should change, with at least one flag. An empty `--description` or `--password` clears the corresponding field. `--title` cannot be empty.
 
 `albums delete <id...> --yes` deletes albums. Images stay in the library. Same `--yes` rule as `images delete`. The prompt is `Delete N album(s)?`. stdout is an array of `{id, status, error}`.
 
@@ -99,26 +107,18 @@ When the message is `Invalid API key. Run '<binary> setup'.`, stop and ask for a
 
 `albums members ls <id>` returns `{members: [{user_id, username, role, origin, created_at}]}`. Email addresses are not included.
 
-`albums members add <id>` invites one viewer. Set exactly one of `--user-id <id>` or `--username <name>`. When the username matches several accounts, the command fails and the message lists `name (id)` candidates. Invite again with `--user-id`. stdout is the member plus `already_member`.
+`albums members add <id>` invites one person. Set exactly one of `--user-id <id>`, `--username <name>`, or `--email <address>`. Choose `--role viewer|contributor` (default `viewer`). When the username matches several accounts, the command fails and the message lists `name (id)` candidates. Invite again with `--user-id`. stdout is the member plus `already_member`.
 
 `albums members delete <id> <user-id...> --yes` removes members. Without `--yes`, a non-interactive run exits `1` with `use --yes to remove`.
 
 `albums categories ls` returns `{categories: [{id, name, slug, scope, album_count}]}`. `scope` is `private` or `public`.
 
-`albums categories create --name <name>` creates a private category. Names may contain letters, digits, and hyphens.
+`albums categories create --name <name>` creates a private category and accepts `--scope private`. Names may contain letters, digits, and hyphens.
 
 `albums categories set <id> --private <ids> --public <ids>` replaces both lists. Both flags are required. An empty value clears that side. Ids are comma-separated. stdout is the category collection now on the album.
 
 `notifications ls` returns `{unread_count, items, has_more, next_cursor}`. Optional `--limit` (default 30) and `--cursor`. The server accepts a limit from 1 to 100. An item has `id`, `type`, `title`, `body`, `target_url`, `is_read`, `actor_name`, `actor_count`, `event_count`, and `last_event_at`. When `has_more` is true, repeat with `--cursor` set to `next_cursor`.
 
 A relative `view_url` or `target_url` is a path. Prefix the brand host. An upload result `url` is already absolute.
-
-## No command exists
-
-Say so and stop. Do not invent a flag and do not call the HTTP API.
-
-- `/auth/*` session routes, including register and login
-- `GET /ping`
-- upload processing profile `custom` with an explicit derivative list
 
 `setup --reset` deletes that brand's config. Run it only when the user asks to log out.

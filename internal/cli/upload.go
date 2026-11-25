@@ -20,12 +20,18 @@ const (
 )
 
 type uploadResult struct {
-	File      string `json:"file"`
-	OK        bool   `json:"ok"`
-	ImageUUID string `json:"image_uuid,omitempty"`
-	URL       string `json:"url,omitempty"`
-	Duplicate bool   `json:"duplicate,omitempty"`
-	Error     string `json:"error,omitempty"`
+	File              string                  `json:"file"`
+	OK                bool                    `json:"ok"`
+	ImageUUID         string                  `json:"image_uuid,omitempty"`
+	URL               string                  `json:"url,omitempty"`
+	Duplicate         bool                    `json:"duplicate,omitempty"`
+	IsNSFW            *bool                   `json:"is_nsfw,omitempty"`
+	IsAIGenerated     *bool                   `json:"is_ai_generated,omitempty"`
+	Tags              []string                `json:"tags,omitempty"`
+	AvailableVariants []string                `json:"available_variants,omitempty"`
+	Variants          *client.ImageVariants   `json:"variants,omitempty"`
+	Processing        *client.ImageProcessing `json:"processing,omitempty"`
+	Error             string                  `json:"error,omitempty"`
 }
 
 func (a *App) uploadCommand() *cobra.Command {
@@ -36,8 +42,12 @@ func (a *App) uploadCommand() *cobra.Command {
 		RunE:    a.uploadRun,
 	}
 	cmd.Flags().Int64("album", 0, "album id")
-	cmd.Flags().Bool("nsfw", false, "mark as NSFW")
-	cmd.Flags().String("processing", "default", "processing profile (default or original_only)")
+	cmd.Flags().Bool("nsfw", false, "set the NSFW flag (true or false)")
+	cmd.Flags().Bool("ai-generated", false, "set the AI-generated flag (true or false)")
+	cmd.Flags().StringArray("tag", nil, "tag the upload; repeat for each tag")
+	cmd.Flags().String("processing", "default", "processing profile (default, original_only, or custom)")
+	cmd.Flags().StringArray("derivative", nil, "custom derivative as family/size; repeat for each variant")
+	cmd.Flags().Bool("upload-token-form", false, "send the storage token as a multipart field")
 	cmd.Flags().Bool("no-wait", false, "skip processing poll")
 	cmd.Flags().Bool("copy", false, "copy share URL to clipboard")
 	cmd.Flags().Bool("no-copy", false, "do not copy to clipboard")
@@ -45,12 +55,9 @@ func (a *App) uploadCommand() *cobra.Command {
 }
 
 func (a *App) uploadRun(cmd *cobra.Command, args []string) error {
-	processing, err := cmd.Flags().GetString("processing")
+	processing, err := uploadProcessing(cmd)
 	if err != nil {
 		return err
-	}
-	if processing != "default" && processing != "original_only" {
-		return fmt.Errorf("%w: --processing must be default or original_only", ErrUsage)
 	}
 	copyFlag, err := cmd.Flags().GetBool("copy")
 	if err != nil {
@@ -71,7 +78,22 @@ func (a *App) uploadRun(cmd *cobra.Command, args []string) error {
 	if err != nil {
 		return err
 	}
-	nsfw, err := cmd.Flags().GetBool("nsfw")
+	nsfw, err := changedBool(cmd, "nsfw")
+	if err != nil {
+		return err
+	}
+	isAI, err := changedBool(cmd, "ai-generated")
+	if err != nil {
+		return err
+	}
+	tags, err := cmd.Flags().GetStringArray("tag")
+	if err != nil {
+		return err
+	}
+	if len(tags) > 20 {
+		return fmt.Errorf("%w: at most 20 upload tags are allowed", ErrUsage)
+	}
+	tokenInForm, err := cmd.Flags().GetBool("upload-token-form")
 	if err != nil {
 		return err
 	}
@@ -84,12 +106,16 @@ func (a *App) uploadRun(cmd *cobra.Command, args []string) error {
 	if err != nil {
 		return err
 	}
+	request := client.UploadSessionRequest{Processing: processing, IsNSFW: nsfw, IsAIGenerated: isAI, Tags: tags}
+	if albumID != 0 {
+		request.AlbumID = &albumID
+	}
 
 	results := make([]uploadResult, 0, len(args))
 	successCount := 0
 	lastURL := ""
 	for _, path := range args {
-		res := a.uploadOne(cmd, c, vals.BaseURL, path, albumID, nsfw, processing, noWait)
+		res := a.uploadOne(cmd, c, vals.BaseURL, path, request, noWait, tokenInForm)
 		results = append(results, res)
 		if res.OK {
 			successCount++
@@ -131,7 +157,40 @@ func (a *App) uploadRun(cmd *cobra.Command, args []string) error {
 	return nil
 }
 
-func (a *App) uploadOne(cmd *cobra.Command, c *client.Client, baseURL, path string, albumID int64, nsfw bool, processing string, noWait bool) uploadResult {
+func uploadProcessing(cmd *cobra.Command) (*client.UploadProcessingRequest, error) {
+	profile, err := cmd.Flags().GetString("processing")
+	if err != nil {
+		return nil, err
+	}
+	if profile != "default" && profile != "original_only" && profile != "custom" {
+		return nil, fmt.Errorf("%w: --processing must be default, original_only, or custom", ErrUsage)
+	}
+	values, err := cmd.Flags().GetStringArray("derivative")
+	if err != nil {
+		return nil, err
+	}
+	if profile == "custom" && len(values) == 0 {
+		return nil, fmt.Errorf("%w: --processing custom requires at least one --derivative", ErrUsage)
+	}
+	if profile != "custom" && len(values) != 0 {
+		return nil, fmt.Errorf("%w: --derivative requires --processing custom", ErrUsage)
+	}
+	out := &client.UploadProcessingRequest{Profile: profile}
+	for _, value := range values {
+		family, size, _ := strings.Cut(value, "/")
+		if family != "original" && family != "webp" && family != "avif" ||
+			size != "original" && size != "medium" && size != "small" {
+			return nil, fmt.Errorf("%w: invalid --derivative %q, expected original|webp|avif/original|medium|small", ErrUsage, value)
+		}
+		if family == "original" && size == "original" {
+			return nil, fmt.Errorf("%w: original/original is already included", ErrUsage)
+		}
+		out.Derivatives = append(out.Derivatives, client.ProcessingDerivative{Family: family, Size: size})
+	}
+	return out, nil
+}
+
+func (a *App) uploadOne(cmd *cobra.Command, c *client.Client, baseURL, path string, req client.UploadSessionRequest, noWait, tokenInForm bool) uploadResult {
 	res := uploadResult{File: path}
 	info, err := os.Stat(path)
 	if err != nil {
@@ -147,20 +206,7 @@ func (a *App) uploadOne(cmd *cobra.Command, c *client.Client, baseURL, path stri
 		return res
 	}
 
-	req := client.UploadSessionRequest{
-		FileSize: info.Size(),
-		Processing: &struct {
-			Profile string `json:"profile"`
-		}{Profile: processing},
-	}
-	if albumID != 0 {
-		id := albumID
-		req.AlbumID = &id
-	}
-	if nsfw {
-		req.IsNSFW = boolPtr(true)
-	}
-
+	req.FileSize = info.Size()
 	sess, err := c.CreateUploadSession(cmd.Context(), req)
 	if err != nil {
 		res.Error = err.Error()
@@ -170,8 +216,8 @@ func (a *App) uploadOne(cmd *cobra.Command, c *client.Client, baseURL, path stri
 		res.Error = fmt.Sprintf("file exceeds max_bytes (%d > %d)", info.Size(), sess.MaxBytes)
 		return res
 	}
-	if albumID != 0 && sess.AlbumID == nil {
-		fmt.Fprintf(a.Stderr, "album %d was not bound; uploading without album\n", albumID)
+	if req.AlbumID != nil && sess.AlbumID == nil {
+		fmt.Fprintf(a.Stderr, "album %d was not bound; uploading without album\n", *req.AlbumID)
 	}
 
 	f, err := os.Open(path)
@@ -181,7 +227,7 @@ func (a *App) uploadOne(cmd *cobra.Command, c *client.Client, baseURL, path stri
 	}
 	defer f.Close()
 
-	up, err := c.UploadFile(cmd.Context(), sess.UploadURL, sess.Token, filepath.Base(path), f, info.Size(), a.uploadProgress(filepath.Base(path)))
+	up, err := c.UploadFile(cmd.Context(), sess.UploadURL, sess.Token, filepath.Base(path), f, info.Size(), a.uploadProgress(filepath.Base(path)), tokenInForm)
 	if err != nil {
 		res.Error = err.Error()
 		return res
@@ -194,6 +240,12 @@ func (a *App) uploadOne(cmd *cobra.Command, c *client.Client, baseURL, path stri
 	if up.Duplicate != nil {
 		res.Duplicate = *up.Duplicate
 	}
+	res.IsNSFW = up.IsNSFW
+	res.IsAIGenerated = up.IsAIGenerated
+	res.Tags = up.Tags
+	res.AvailableVariants = up.AvailableVariants
+	res.Variants = up.Variants
+	res.Processing = up.Processing
 
 	if !noWait {
 		if err := a.waitForImage(cmd, c, res.ImageUUID, filepath.Base(path)); err != nil {

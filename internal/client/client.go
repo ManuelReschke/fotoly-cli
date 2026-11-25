@@ -15,11 +15,12 @@ import (
 )
 
 type Client struct {
-	BaseURL   string
-	APIKey    string
-	UserAgent string
-	HTTP      *http.Client
-	Sleep     func(time.Duration)
+	BaseURL      string
+	APIKey       string
+	SessionToken string
+	UserAgent    string
+	HTTP         *http.Client
+	Sleep        func(time.Duration)
 }
 
 func New(baseURL, apiKey, userAgent string, httpClient *http.Client) *Client {
@@ -59,6 +60,9 @@ func (c *Client) ListImages(ctx context.Context, q ImageListQuery) (*ImageCollec
 	if q.Cursor != "" {
 		v.Set("cursor", q.Cursor)
 	}
+	if q.Sort != "" {
+		v.Set("sort", q.Sort)
+	}
 	if q.AlbumID > 0 {
 		v.Set("album_id", strconv.FormatInt(q.AlbumID, 10))
 	}
@@ -67,6 +71,9 @@ func (c *Client) ListImages(ctx context.Context, q ImageListQuery) (*ImageCollec
 	}
 	if q.IsNSFW != nil {
 		v.Set("is_nsfw", strconv.FormatBool(*q.IsNSFW))
+	}
+	if q.IsAIGenerated != nil {
+		v.Set("is_ai_generated", strconv.FormatBool(*q.IsAIGenerated))
 	}
 	if q.Tag != "" {
 		v.Set("tag", q.Tag)
@@ -98,8 +105,8 @@ func (c *Client) GetImageStatus(ctx context.Context, uuid string) (*ImageStatus,
 	return &st, nil
 }
 
-func (c *Client) UpdateImage(ctx context.Context, uuid string, req ImageUpdate) (*ImageEdit, error) {
-	var img ImageEdit
+func (c *Client) UpdateImage(ctx context.Context, uuid string, req ImageUpdate) (*ImageSummary, error) {
+	var img ImageSummary
 	if err := c.doJSONBody(ctx, http.MethodPatch, "/images/"+url.PathEscape(uuid), req, &img); err != nil {
 		return nil, err
 	}
@@ -196,11 +203,12 @@ func (c *Client) ListAlbumCategories(ctx context.Context) (*AlbumCategoryCollect
 	return &col, nil
 }
 
-func (c *Client) CreateAlbumCategory(ctx context.Context, name string) (*AlbumCategory, error) {
+func (c *Client) CreateAlbumCategory(ctx context.Context, name, scope string) (*AlbumCategory, error) {
 	var cat AlbumCategory
 	body := struct {
-		Name string `json:"name"`
-	}{Name: name}
+		Name  string `json:"name"`
+		Scope string `json:"scope,omitempty"`
+	}{Name: name, Scope: scope}
 	if err := c.doJSONBody(ctx, http.MethodPost, "/album-categories", body, &cat); err != nil {
 		return nil, err
 	}
@@ -292,7 +300,7 @@ func (c *Client) CreateUploadSession(ctx context.Context, req UploadSessionReque
 	return &sess, nil
 }
 
-func (c *Client) UploadFile(ctx context.Context, uploadURL, token, filename string, r io.Reader, size int64, progress func(sent, total int64)) (*StorageUploadResponse, error) {
+func (c *Client) UploadFile(ctx context.Context, uploadURL, token, filename string, r io.Reader, size int64, progress func(sent, total int64), tokenInForm bool) (*StorageUploadResponse, error) {
 	pr, pw := io.Pipe()
 	mw := multipart.NewWriter(pw)
 	go func() {
@@ -303,6 +311,11 @@ func (c *Client) UploadFile(ctx context.Context, uploadURL, token, filename stri
 			}
 			_ = pw.CloseWithError(err)
 		}()
+		if tokenInForm {
+			if err = mw.WriteField("token", token); err != nil {
+				return
+			}
+		}
 		fw, ferr := mw.CreateFormFile("file", filename)
 		if ferr != nil {
 			err = ferr
@@ -320,7 +333,9 @@ func (c *Client) UploadFile(ctx context.Context, uploadURL, token, filename stri
 		_ = pr.Close()
 		return nil, err
 	}
-	req.Header.Set("Authorization", "Bearer "+token)
+	if !tokenInForm {
+		req.Header.Set("Authorization", "Bearer "+token)
+	}
 	req.Header.Set("Content-Type", mw.FormDataContentType())
 	req.Header.Set("Accept", "application/json")
 	req.Header.Set("User-Agent", c.UserAgent)
@@ -368,7 +383,7 @@ func (c *Client) doJSON(ctx context.Context, method, path string, dest any) erro
 }
 
 func (c *Client) doJSONBody(ctx context.Context, method, path string, body, dest any) error {
-	u := strings.TrimRight(c.BaseURL, "/") + "/api/v1" + path
+	u := c.apiURL(path)
 	var payload []byte
 	if body != nil {
 		b, err := json.Marshal(body)
@@ -392,7 +407,7 @@ func (c *Client) doJSONBody(ctx context.Context, method, path string, body, dest
 			return err
 		}
 		req.Header.Set("Accept", "application/json")
-		req.Header.Set("X-API-Key", c.APIKey)
+		c.setAuth(req)
 		req.Header.Set("User-Agent", c.UserAgent)
 		if body != nil {
 			req.Header.Set("Content-Type", "application/json")
@@ -433,6 +448,18 @@ func (c *Client) doJSONBody(ctx context.Context, method, path string, body, dest
 		return decodeAPIError(resp)
 	}
 	return errors.New("retry exhausted")
+}
+
+func (c *Client) apiURL(path string) string {
+	return strings.TrimRight(c.BaseURL, "/") + "/api/v1" + path
+}
+
+func (c *Client) setAuth(req *http.Request) {
+	if c.APIKey != "" {
+		req.Header.Set("X-API-Key", c.APIKey)
+	} else if c.SessionToken != "" {
+		req.Header.Set("Authorization", "Bearer "+c.SessionToken)
+	}
 }
 
 func (c *Client) sleep(d time.Duration) {

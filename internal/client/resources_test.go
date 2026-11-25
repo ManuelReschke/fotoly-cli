@@ -255,7 +255,7 @@ func TestAlbumCategories(t *testing.T) {
 
 func TestCreateAlbumCategory(t *testing.T) {
 	c, got := scriptedClient(t, http.StatusCreated, `{"id":4,"name":"travel","slug":"travel","scope":"private","album_count":0}`)
-	cat, err := c.CreateAlbumCategory(context.Background(), "travel")
+	cat, err := c.CreateAlbumCategory(context.Background(), "travel", "")
 	if err != nil {
 		t.Fatal(err)
 	}

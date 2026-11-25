@@ -21,6 +21,7 @@ type uploadHarness struct {
 	mu                    sync.Mutex
 	sessionBody           client.UploadSessionRequest
 	uploadCount           int
+	uploadFormToken       string
 	statusCount           int
 	statusPending         bool
 	statusFailed          bool
@@ -51,6 +52,9 @@ func newUploadHarness(t *testing.T) *uploadHarness {
 	mux.HandleFunc("POST /api/v1/upload", func(w http.ResponseWriter, r *http.Request) {
 		h.mu.Lock()
 		h.uploadCount++
+		if r.Header.Get("Authorization") == "" {
+			h.uploadFormToken = r.FormValue("token")
+		}
 		h.mu.Unlock()
 		w.Header().Set("Content-Type", "application/json")
 		_, _ = io.WriteString(w, `{"image_uuid":"img-1","view_url":"/i/share1","duplicate":false}`)

@@ -97,6 +97,10 @@ func (a *App) albumsCreateRun(cmd *cobra.Command, _ []string) error {
 	if err != nil {
 		return err
 	}
+	isAI, err := changedBool(cmd, "ai-generated")
+	if err != nil {
+		return err
+	}
 	c, vals, err := a.requireClient(cmd)
 	if err != nil {
 		return err
@@ -106,6 +110,7 @@ func (a *App) albumsCreateRun(cmd *cobra.Command, _ []string) error {
 		Description:    description,
 		IsPublic:       isPublic,
 		IsNSFW:         isNSFW,
+		IsAIGenerated:  isAI,
 		SharePassword:  password,
 		ImageSortOrder: sortOrder,
 	})
@@ -132,7 +137,7 @@ func (a *App) albumsEditRun(cmd *cobra.Command, args []string) error {
 		return err
 	}
 	if !albumMetaChanged(cmd) {
-		return fmt.Errorf("%w: set at least one of --title, --description, --public, --private, --nsfw, --sfw, --password, or --sort", ErrUsage)
+		return fmt.Errorf("%w: set at least one of --title, --description, --public, --private, --nsfw, --sfw, --ai-generated, --password, or --sort", ErrUsage)
 	}
 	title, err := changedString(cmd, "title")
 	if err != nil {
@@ -157,6 +162,10 @@ func (a *App) albumsEditRun(cmd *cobra.Command, args []string) error {
 	if err != nil {
 		return err
 	}
+	isAI, err := changedBool(cmd, "ai-generated")
+	if err != nil {
+		return err
+	}
 	c, vals, err := a.requireClient(cmd)
 	if err != nil {
 		return err
@@ -166,6 +175,7 @@ func (a *App) albumsEditRun(cmd *cobra.Command, args []string) error {
 		Description:    description,
 		IsPublic:       isPublic,
 		IsNSFW:         isNSFW,
+		IsAIGenerated:  isAI,
 		SharePassword:  password,
 		ImageSortOrder: sortOrder,
 	})
@@ -285,13 +295,6 @@ func (a *App) albumsCoverRun(cmd *cobra.Command, args []string) error {
 
 func (a *App) writeAlbum(base string, album *client.AlbumSummary, forceCover bool) error {
 	if a.flagJSON {
-		if forceCover {
-			payload := struct {
-				client.AlbumSummary
-				CoverImageUUID *string `json:"cover_image_uuid"`
-			}{AlbumSummary: *album, CoverImageUUID: album.CoverImageUUID}
-			return json.NewEncoder(a.Stdout).Encode(payload)
-		}
 		return json.NewEncoder(a.Stdout).Encode(album)
 	}
 	fmt.Fprintf(a.Stdout, "ID: %d\n", album.ID)
@@ -299,6 +302,7 @@ func (a *App) writeAlbum(base string, album *client.AlbumSummary, forceCover boo
 	fmt.Fprintf(a.Stdout, "Description: %s\n", album.Description)
 	fmt.Fprintf(a.Stdout, "Public: %s\n", strconv.FormatBool(album.IsPublic))
 	fmt.Fprintf(a.Stdout, "NSFW: %s\n", strconv.FormatBool(album.IsNSFW))
+	fmt.Fprintf(a.Stdout, "AI-generated: %s\n", strconv.FormatBool(album.IsAIGenerated))
 	if album.ImageSortOrder != "" {
 		fmt.Fprintf(a.Stdout, "Sort: %s\n", album.ImageSortOrder)
 	}

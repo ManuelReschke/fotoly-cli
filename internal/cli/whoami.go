@@ -26,6 +26,9 @@ func (a *App) whoamiRun(cmd *cobra.Command, _ []string) error {
 	acc, err := c.GetProfile(cmd.Context())
 	if err != nil {
 		if client.IsUnauthorized(err) {
+			if c.APIKey == "" && c.SessionToken != "" {
+				return fmt.Errorf("Invalid app session. Run '%s auth login' to get a new token.", a.Brand.Binary)
+			}
 			return fmt.Errorf("Invalid API key. Run '%s setup'.", a.Brand.Binary)
 		}
 		return err

@@ -260,12 +260,10 @@ func TestCreateUploadSession(t *testing.T) {
 
 	c := New(srv.URL, "pxl_test", "fotoly-cli/dev", srv.Client())
 	sess, err := c.CreateUploadSession(context.Background(), UploadSessionRequest{
-		FileSize: 1837421,
-		AlbumID:  &albumID,
-		IsNSFW:   &nsfw,
-		Processing: &struct {
-			Profile string `json:"profile"`
-		}{Profile: "original_only"},
+		FileSize:   1837421,
+		AlbumID:    &albumID,
+		IsNSFW:     &nsfw,
+		Processing: &UploadProcessingRequest{Profile: "original_only"},
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -326,7 +324,7 @@ func TestUploadFileUsesBearerNotAPIKey(t *testing.T) {
 	var lastSent int64
 	resp, err := c.UploadFile(context.Background(), uploadSrv.URL, "sess_token", "cat.jpg", bytes.NewReader(payload), int64(len(payload)), func(sent, total int64) {
 		lastSent = sent
-	})
+	}, false)
 	if err != nil {
 		t.Fatal(err)
 	}

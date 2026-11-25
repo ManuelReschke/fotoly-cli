@@ -104,13 +104,13 @@ func (c *Client) DownloadExportFile(ctx context.Context, downloadPath string, ds
 	if !strings.HasPrefix(path, "/") {
 		path = "/" + path
 	}
-	u := strings.TrimRight(c.BaseURL, "/") + "/api/v1" + path
+	u := c.apiURL(path)
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, u, nil)
 	if err != nil {
 		return 0, err
 	}
 	req.Header.Set("Accept", "*/*")
-	req.Header.Set("X-API-Key", c.APIKey)
+	c.setAuth(req)
 	req.Header.Set("User-Agent", c.UserAgent)
 
 	hc := http.Client{Timeout: exportDownloadTimeout}

@@ -1,21 +1,24 @@
 package client
 
 type UserAccount struct {
-	ID          int64                  `json:"id"`
-	Username    string                 `json:"username"`
-	Email       string                 `json:"email"`
-	Status      string                 `json:"status"`
-	Plan        string                 `json:"plan"`
-	CreatedAt   string                 `json:"created_at"`
-	Stats       UserAccountStats       `json:"stats"`
-	Limits      UserAccountLimits      `json:"limits"`
-	Preferences UserAccountPreferences `json:"preferences"`
+	ID               int64                  `json:"id"`
+	Username         string                 `json:"username"`
+	Email            string                 `json:"email"`
+	Status           string                 `json:"status"`
+	Plan             string                 `json:"plan"`
+	CreatedAt        string                 `json:"created_at"`
+	LastLoginAt      *string                `json:"last_login_at"`
+	APIKeyLastUsedAt *string                `json:"api_key_last_used_at"`
+	Stats            UserAccountStats       `json:"stats"`
+	Limits           UserAccountLimits      `json:"limits"`
+	Preferences      UserAccountPreferences `json:"preferences"`
 }
 
 type UserAccountStats struct {
 	Images struct {
-		Count            int64 `json:"count"`
-		StorageUsedBytes int64 `json:"storage_used_bytes"`
+		Count                 int64  `json:"count"`
+		StorageUsedBytes      int64  `json:"storage_used_bytes"`
+		StorageRemainingBytes *int64 `json:"storage_remaining_bytes"`
 	} `json:"images"`
 	Albums struct {
 		Count int64 `json:"count"`
@@ -32,19 +35,23 @@ type UserAccountLimits struct {
 }
 
 type UserAccountPreferences struct {
-	UploadNSFWByDefault bool `json:"upload_nsfw_by_default"`
-	ThumbnailOriginal   bool `json:"thumbnail_original"`
-	ThumbnailWebP       bool `json:"thumbnail_webp"`
-	ThumbnailAVIF       bool `json:"thumbnail_avif"`
+	UploadNSFWByDefault        bool  `json:"upload_nsfw_by_default"`
+	UploadAIGeneratedByDefault bool  `json:"upload_ai_generated_by_default"`
+	ThumbnailOriginal          bool  `json:"thumbnail_original"`
+	ThumbnailWebP              bool  `json:"thumbnail_webp"`
+	ThumbnailAVIF              bool  `json:"thumbnail_avif"`
+	CompressOriginals          *bool `json:"compress_originals,omitempty"`
 }
 
 type ImageListQuery struct {
-	Limit    int
-	Cursor   string
-	AlbumID  int64
-	IsPublic *bool
-	IsNSFW   *bool
-	Tag      string
+	Limit         int
+	Cursor        string
+	Sort          string
+	AlbumID       int64
+	IsPublic      *bool
+	IsNSFW        *bool
+	IsAIGenerated *bool
+	Tag           string
 }
 
 type ImageCollection struct {
@@ -54,45 +61,45 @@ type ImageCollection struct {
 }
 
 type ImageSummary struct {
-	ImageUUID     string `json:"image_uuid"`
-	Title         string `json:"title"`
-	Description   string `json:"description"`
-	FileName      string `json:"file_name"`
-	FileSize      int64  `json:"file_size"`
-	FileType      string `json:"file_type"`
-	Width         int    `json:"width"`
-	Height        int    `json:"height"`
-	IsPublic      bool   `json:"is_public"`
-	IsNSFW        bool   `json:"is_nsfw"`
-	ShareLink     string `json:"share_link"`
-	ViewURL       string `json:"view_url"`
-	StableURL     string `json:"stable_url"`
-	ViewCount     int    `json:"view_count"`
-	DownloadCount int    `json:"download_count"`
-	CreatedAt     string `json:"created_at"`
-	UpdatedAt     string `json:"updated_at"`
+	ImageUUID         string   `json:"image_uuid"`
+	Title             string   `json:"title"`
+	Description       string   `json:"description"`
+	FileName          string   `json:"file_name"`
+	FileSize          int64    `json:"file_size"`
+	FileType          string   `json:"file_type"`
+	ProcessingProfile string   `json:"processing_profile,omitempty"`
+	Width             int      `json:"width"`
+	Height            int      `json:"height"`
+	IsPublic          bool     `json:"is_public"`
+	IsNSFW            bool     `json:"is_nsfw"`
+	IsAIGenerated     bool     `json:"is_ai_generated"`
+	ShareLink         string   `json:"share_link"`
+	ViewURL           string   `json:"view_url"`
+	StableURL         string   `json:"stable_url"`
+	ViewCount         int      `json:"view_count"`
+	DownloadCount     int      `json:"download_count"`
+	LastViewedAt      *string  `json:"last_viewed_at"`
+	CreatedAt         string   `json:"created_at"`
+	UpdatedAt         string   `json:"updated_at"`
+	Tags              []string `json:"tags"`
 }
 
 // ImageUpdate is a partial metadata write. Nil fields are omitted so the server leaves them unchanged.
 // A non-nil empty Tags slice clears every tag.
 type ImageUpdate struct {
-	Title       *string   `json:"title,omitempty"`
-	Description *string   `json:"description,omitempty"`
-	IsPublic    *bool     `json:"is_public,omitempty"`
-	IsNSFW      *bool     `json:"is_nsfw,omitempty"`
-	Tags        *[]string `json:"tags,omitempty"`
-}
-
-// ImageEdit is the image summary returned by a metadata update, including tags.
-type ImageEdit struct {
-	ImageSummary
-	Tags []string `json:"tags"`
+	Title         *string   `json:"title,omitempty"`
+	Description   *string   `json:"description,omitempty"`
+	IsPublic      *bool     `json:"is_public,omitempty"`
+	IsNSFW        *bool     `json:"is_nsfw,omitempty"`
+	IsAIGenerated *bool     `json:"is_ai_generated,omitempty"`
+	Tags          *[]string `json:"tags,omitempty"`
 }
 
 type ImageResource struct {
 	ImageUUID         string           `json:"image_uuid"`
 	ViewURL           string           `json:"view_url,omitempty"`
 	IsNSFW            bool             `json:"is_nsfw"`
+	IsAIGenerated     bool             `json:"is_ai_generated"`
 	Tags              []string         `json:"tags,omitempty"`
 	URL               string           `json:"url,omitempty"`
 	AvailableVariants []string         `json:"available_variants,omitempty"`
@@ -154,10 +161,12 @@ type AlbumSummary struct {
 	Description      string  `json:"description"`
 	IsPublic         bool    `json:"is_public"`
 	IsNSFW           bool    `json:"is_nsfw"`
+	IsAIGenerated    bool    `json:"is_ai_generated"`
 	ShareLink        string  `json:"share_link"`
 	ViewURL          string  `json:"view_url"`
 	ImageCount       int64   `json:"image_count"`
-	CoverImageUUID   *string `json:"cover_image_uuid,omitempty"`
+	CoverImageUUID   *string `json:"cover_image_uuid"`
+	CoverStableURL   *string `json:"cover_stable_url"`
 	ImageSortOrder   string  `json:"image_sort_order,omitempty"`
 	HasSharePassword *bool   `json:"has_share_password,omitempty"`
 	CreatedAt        string  `json:"created_at"`
@@ -170,6 +179,7 @@ type AlbumCreate struct {
 	Description    *string `json:"description,omitempty"`
 	IsPublic       *bool   `json:"is_public,omitempty"`
 	IsNSFW         *bool   `json:"is_nsfw,omitempty"`
+	IsAIGenerated  *bool   `json:"is_ai_generated,omitempty"`
 	SharePassword  *string `json:"share_password,omitempty"`
 	ImageSortOrder *string `json:"image_sort_order,omitempty"`
 }
@@ -181,6 +191,7 @@ type AlbumUpdate struct {
 	Description    *string `json:"description,omitempty"`
 	IsPublic       *bool   `json:"is_public,omitempty"`
 	IsNSFW         *bool   `json:"is_nsfw,omitempty"`
+	IsAIGenerated  *bool   `json:"is_ai_generated,omitempty"`
 	SharePassword  *string `json:"share_password,omitempty"`
 	ImageSortOrder *string `json:"image_sort_order,omitempty"`
 }
@@ -202,6 +213,7 @@ type AlbumImageSummary struct {
 	Height            int      `json:"height"`
 	IsPublic          bool     `json:"is_public"`
 	IsNSFW            bool     `json:"is_nsfw"`
+	IsAIGenerated     bool     `json:"is_ai_generated"`
 	Tags              []string `json:"tags"`
 	ProcessingProfile string   `json:"processing_profile,omitempty"`
 	ShareLink         string   `json:"share_link"`
@@ -236,10 +248,12 @@ type AlbumMemberResult struct {
 	AlreadyMember bool `json:"already_member"`
 }
 
-// AlbumMemberInvite sends exactly one of UserID or Username.
+// AlbumMemberInvite sends exactly one of UserID, Username or Email.
 type AlbumMemberInvite struct {
 	UserID   *int64  `json:"user_id,omitempty"`
 	Username *string `json:"username,omitempty"`
+	Email    *string `json:"email,omitempty"`
+	Role     string  `json:"role,omitempty"`
 }
 
 type AlbumMemberCandidate struct {
@@ -317,37 +331,54 @@ type ImageCommentCreate struct {
 }
 
 type UploadSessionRequest struct {
-	FileSize   int64  `json:"file_size"`
-	AlbumID    *int64 `json:"album_id,omitempty"`
-	IsNSFW     *bool  `json:"is_nsfw,omitempty"`
-	Processing *struct {
-		Profile string `json:"profile"`
-	} `json:"processing,omitempty"`
+	FileSize      int64                    `json:"file_size"`
+	AlbumID       *int64                   `json:"album_id,omitempty"`
+	IsNSFW        *bool                    `json:"is_nsfw,omitempty"`
+	IsAIGenerated *bool                    `json:"is_ai_generated,omitempty"`
+	Tags          []string                 `json:"tags,omitempty"`
+	Processing    *UploadProcessingRequest `json:"processing,omitempty"`
+}
+
+type UploadProcessingRequest struct {
+	Profile     string                 `json:"profile"`
+	Derivatives []ProcessingDerivative `json:"derivatives,omitempty"`
 }
 
 type UploadSessionResponse struct {
-	UploadURL string `json:"upload_url"`
-	Token     string `json:"token"`
-	PoolID    int64  `json:"pool_id"`
-	ExpiresAt int64  `json:"expires_at"`
-	MaxBytes  int64  `json:"max_bytes"`
-	AlbumID   *int64 `json:"album_id,omitempty"`
+	UploadURL     string           `json:"upload_url"`
+	Token         string           `json:"token"`
+	PoolID        int64            `json:"pool_id"`
+	ExpiresAt     int64            `json:"expires_at"`
+	MaxBytes      int64            `json:"max_bytes"`
+	AlbumID       *int64           `json:"album_id,omitempty"`
+	IsNSFW        *bool            `json:"is_nsfw,omitempty"`
+	IsAIGenerated *bool            `json:"is_ai_generated,omitempty"`
+	Processing    *ImageProcessing `json:"processing,omitempty"`
 }
 
 type StorageUploadResponse struct {
-	ImageUUID *string `json:"image_uuid"`
-	ViewURL   *string `json:"view_url"`
-	URL       *string `json:"url"`
-	Duplicate *bool   `json:"duplicate"`
+	ImageUUID         *string          `json:"image_uuid"`
+	ViewURL           *string          `json:"view_url"`
+	URL               *string          `json:"url"`
+	Duplicate         *bool            `json:"duplicate"`
+	IsNSFW            *bool            `json:"is_nsfw,omitempty"`
+	IsAIGenerated     *bool            `json:"is_ai_generated,omitempty"`
+	Tags              []string         `json:"tags,omitempty"`
+	AvailableVariants []string         `json:"available_variants,omitempty"`
+	Variants          *ImageVariants   `json:"variants,omitempty"`
+	Processing        *ImageProcessing `json:"processing,omitempty"`
 }
 
 // ExportStatus is the POST and GET /user/export document.
 // Status is pending, processing, ready, or failed. Created is only set on POST.
 type ExportStatus struct {
-	ID      int64  `json:"id"`
-	Status  string `json:"status"`
-	Error   string `json:"error"`
-	Created bool   `json:"created"`
+	ID            int64   `json:"id"`
+	Status        string  `json:"status"`
+	OriginalBytes int64   `json:"original_bytes"`
+	IncludesZIP   bool    `json:"includes_zip"`
+	ExpiresAt     *string `json:"expires_at"`
+	Error         string  `json:"error"`
+	Created       bool    `json:"created"`
 }
 
 // ExportAccount is the ready account document from GET /user/export/account.

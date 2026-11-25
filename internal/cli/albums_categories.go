@@ -48,6 +48,7 @@ func (a *App) albumsCategoriesCreateCommand() *cobra.Command {
 		RunE:  a.albumsCategoriesCreateRun,
 	}
 	cmd.Flags().String("name", "", "category name")
+	cmd.Flags().String("scope", "", "category scope (private)")
 	_ = cmd.MarkFlagRequired("name")
 	return cmd
 }
@@ -61,11 +62,18 @@ func (a *App) albumsCategoriesCreateRun(cmd *cobra.Command, _ []string) error {
 	if name == "" {
 		return fmt.Errorf("%w: --name cannot be empty", ErrUsage)
 	}
+	scope, err := cmd.Flags().GetString("scope")
+	if err != nil {
+		return err
+	}
+	if cmd.Flags().Changed("scope") && scope != "private" {
+		return fmt.Errorf("%w: --scope must be private", ErrUsage)
+	}
 	c, _, err := a.requireClient(cmd)
 	if err != nil {
 		return err
 	}
-	cat, err := c.CreateAlbumCategory(cmd.Context(), name)
+	cat, err := c.CreateAlbumCategory(cmd.Context(), name, scope)
 	if err != nil {
 		return err
 	}

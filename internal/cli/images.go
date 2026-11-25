@@ -34,11 +34,13 @@ func (a *App) imagesLSCommand() *cobra.Command {
 	}
 	cmd.Flags().Int("limit", 25, "page size")
 	cmd.Flags().String("cursor", "", "pagination cursor")
+	cmd.Flags().String("sort", "", "upload order: desc or asc (default desc)")
 	cmd.Flags().Int64("album", 0, "filter by album id")
 	cmd.Flags().Bool("public", false, "only public images")
 	cmd.Flags().Bool("private", false, "only private images")
 	cmd.Flags().Bool("nsfw", false, "only NSFW images")
 	cmd.Flags().Bool("sfw", false, "only SFW images")
+	cmd.Flags().Bool("ai-generated", false, "filter by AI-generated flag (true or false)")
 	cmd.Flags().String("tag", "", "filter by tag")
 	return cmd
 }
@@ -67,6 +69,14 @@ func (a *App) imagesLSRun(cmd *cobra.Command, _ []string) error {
 		return fmt.Errorf("%w: --nsfw and --sfw are mutually exclusive", ErrUsage)
 	}
 
+	sortOrder, err := changedSort(cmd)
+	if err != nil {
+		return err
+	}
+	isAI, err := changedBool(cmd, "ai-generated")
+	if err != nil {
+		return err
+	}
 	c, vals, err := a.requireClient(cmd)
 	if err != nil {
 		return err
@@ -90,10 +100,14 @@ func (a *App) imagesLSRun(cmd *cobra.Command, _ []string) error {
 	}
 
 	q := client.ImageListQuery{
-		Limit:   limit,
-		Cursor:  cursor,
-		AlbumID: albumID,
-		Tag:     tag,
+		Limit:         limit,
+		Cursor:        cursor,
+		AlbumID:       albumID,
+		Tag:           tag,
+		IsAIGenerated: isAI,
+	}
+	if sortOrder != nil {
+		q.Sort = *sortOrder
 	}
 	if public {
 		q.IsPublic = boolPtr(true)
@@ -156,6 +170,7 @@ func (a *App) imagesGetRun(cmd *cobra.Command, args []string) error {
 	fmt.Fprintf(a.Stdout, "URL: %s\n", resolvedShare(vals.BaseURL, img.ViewURL))
 	fmt.Fprintf(a.Stdout, "Original: %s\n", img.URL)
 	fmt.Fprintf(a.Stdout, "NSFW: %s\n", strconv.FormatBool(img.IsNSFW))
+	fmt.Fprintf(a.Stdout, "AI-generated: %s\n", strconv.FormatBool(img.IsAIGenerated))
 	if len(img.AvailableVariants) > 0 {
 		fmt.Fprintf(a.Stdout, "Variants: %s\n", strings.Join(img.AvailableVariants, ", "))
 	}
@@ -204,6 +219,7 @@ func (a *App) imagesEditCommand() *cobra.Command {
 	cmd.Flags().Bool("private", false, "make the image private")
 	cmd.Flags().Bool("nsfw", false, "mark the image NSFW")
 	cmd.Flags().Bool("sfw", false, "mark the image SFW")
+	cmd.Flags().Bool("ai-generated", false, "set the AI-generated flag (true or false)")
 	cmd.Flags().StringArray("tag", nil, "replace all tags; repeat for each tag")
 	cmd.Flags().Bool("clear-tags", false, "remove all tags")
 	return cmd
@@ -245,11 +261,15 @@ func (a *App) imagesEditRun(cmd *cobra.Command, args []string) error {
 	}
 	titleChanged := cmd.Flags().Changed("title")
 	descriptionChanged := cmd.Flags().Changed("description")
-	if !titleChanged && !descriptionChanged && !public && !private && !nsfw && !sfw && !clearTags && !cmd.Flags().Changed("tag") {
-		return fmt.Errorf("%w: set at least one of --title, --description, --public, --private, --nsfw, --sfw, --tag, or --clear-tags", ErrUsage)
+	isAI, err := changedBool(cmd, "ai-generated")
+	if err != nil {
+		return err
+	}
+	if !titleChanged && !descriptionChanged && !public && !private && !nsfw && !sfw && isAI == nil && !clearTags && !cmd.Flags().Changed("tag") {
+		return fmt.Errorf("%w: set at least one of --title, --description, --public, --private, --nsfw, --sfw, --ai-generated, --tag, or --clear-tags", ErrUsage)
 	}
 
-	var req client.ImageUpdate
+	req := client.ImageUpdate{IsAIGenerated: isAI}
 	if titleChanged {
 		title, err := cmd.Flags().GetString("title")
 		if err != nil {
@@ -297,6 +317,7 @@ func (a *App) imagesEditRun(cmd *cobra.Command, args []string) error {
 	fmt.Fprintf(a.Stdout, "Description: %s\n", img.Description)
 	fmt.Fprintf(a.Stdout, "Public: %s\n", strconv.FormatBool(img.IsPublic))
 	fmt.Fprintf(a.Stdout, "NSFW: %s\n", strconv.FormatBool(img.IsNSFW))
+	fmt.Fprintf(a.Stdout, "AI-generated: %s\n", strconv.FormatBool(img.IsAIGenerated))
 	fmt.Fprintf(a.Stdout, "Tags: %s\n", strings.Join(img.Tags, ", "))
 	fmt.Fprintf(a.Stdout, "URL: %s\n", resolvedShare(vals.BaseURL, img.ViewURL))
 	return nil
